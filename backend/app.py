@@ -5,11 +5,9 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parent
-DATA_DIR=Path(os.environ.get('ATLAS_DATA_DIR',str(ROOT))).resolve()
-DATA_DIR.mkdir(parents=True,exist_ok=True)
-STATE=DATA_DIR/'state.json'
-DB=DATA_DIR/'atlas.db'
-MODEL_VERSION='3.0-rc1-experimental'
+STATE=ROOT/'state.json'
+DB=ROOT/'atlas.db'
+MODEL_VERSION='3.0-rc2-experimental'
 
 @contextmanager
 def database():
@@ -29,7 +27,7 @@ def journal(kind,payload):
  with database() as conn:
   conn.execute('INSERT INTO ledger(ts,kind,payload) VALUES(?,?,?)',(datetime.now(timezone.utc).isoformat(),kind,json.dumps(payload,ensure_ascii=False)))
 
-SERIES={'DFEDTARU':'Fed - taxa-alvo superior','DGS2':'Treasury 2 anos','DGS10':'Treasury 10 anos','DFII5':'Juro real 5 anos','DFII10':'Juro real 10 anos','T5YIE':'Breakeven 5 anos','T10YIE':'Breakeven 10 anos','VIXCLS':'VIX','CPIAUCSL':'CPI','CPILFESL':'CPI núcleo','PCEPI':'PCE','PCEPILFE':'PCE núcleo','UNRATE':'Desemprego','PAYEMS':'Emprego','ICSA':'Pedidos de auxílio-desemprego','GDPC1':'PIB real','RSAFS':'Varejo'}
+SERIES={'DFEDTARU':'Fed - taxa-alvo superior','DGS2':'Treasury 2 anos','DGS10':'Treasury 10 anos','DFII5':'Juro real 5 anos','DFII10':'Juro real 10 anos','T5YIE':'Breakeven 5 anos','T10YIE':'Breakeven 10 anos','VIXCLS':'VIX','CPIAUCSL':'CPI','CPILFESL':'CPI núcleo','PCEPI':'PCE','PCEPILFE':'PCE núcleo','UNRATE':'Desemprego','PAYEMS':'Emprego','ICSA':'Pedidos de auxílio-desemprego','GDPC1':'PIB real','RSAFS':'Varejo','INDPRO':'Produção industrial','DGORDER':'Pedidos de bens duráveis'}
 DEFAULT={'series':{},'events':[],'auto_events':[],'history':[],'change_history':{'USD':[],'GOLD':[]},'audit_events':[],'session_baselines':{},'last_attempt':None,'last_success':None,'error':None,'last_result':None,'last_checked_series':0,'last_failed_series':0,'last_changed_series':0,'refresh_in_progress':False}
 lock=threading.Lock()
 def load():
@@ -101,7 +99,7 @@ def fetch_one(sid,key):
  obs=list({row['date']:row for row in reversed(obs)}.values())
  obs.sort(key=lambda row:row['date'],reverse=True)
  if not obs:raise ValueError('Sem observações numéricas válidas')
- return {'latest':obs[0],'previous':obs[1] if len(obs)>1 else None,'recent':obs[:10],'fetched_at':datetime.now(timezone.utc).isoformat()}
+ return {'latest':obs[0],'previous':obs[1] if len(obs)>1 else None,'recent':obs[:20],'fetched_at':datetime.now(timezone.utc).isoformat()}
 
 refresh_lock=threading.Lock()
 def refresh():
@@ -188,11 +186,11 @@ from datetime import timedelta
 from copy import deepcopy
 from math import isfinite
 BRASILIA=ZoneInfo('America/Sao_Paulo')
-FRESH_DAYS={'DFEDTARU':45,'DGS2':7,'DGS10':7,'DFII5':7,'DFII10':7,'T5YIE':7,'T10YIE':7,'VIXCLS':7,'CPIAUCSL':75,'CPILFESL':75,'PCEPI':85,'PCEPILFE':85,'UNRATE':55,'PAYEMS':55,'ICSA':18,'GDPC1':130,'RSAFS':75}
+FRESH_DAYS={'DFEDTARU':45,'DGS2':7,'DGS10':7,'DFII5':7,'DFII10':7,'T5YIE':7,'T10YIE':7,'VIXCLS':7,'CPIAUCSL':75,'CPILFESL':75,'PCEPI':85,'PCEPILFE':85,'UNRATE':55,'PAYEMS':55,'ICSA':18,'GDPC1':130,'RSAFS':75,'INDPRO':75,'DGORDER':85}
 WEIGHTS_USD={'Juros/Fed':35,'Inflação':20,'Emprego':20,'Atividade':15,'Condições financeiras':10}
 WEIGHTS_GOLD={'Juros reais':40,'Condições USD':25,'Inflação implícita':20,'Risco global':15}
 # Frequência esperada da série; não equivale a confirmação de publicação oficial.
-CADENCE={'DFEDTARU':'por decisão do Fed','DGS2':'diária (dias úteis)','DGS10':'diária (dias úteis)','DFII5':'diária (dias úteis)','DFII10':'diária (dias úteis)','T5YIE':'diária (dias úteis)','T10YIE':'diária (dias úteis)','VIXCLS':'diária (dias úteis)','CPIAUCSL':'mensal','CPILFESL':'mensal','PCEPI':'mensal','PCEPILFE':'mensal','UNRATE':'mensal','PAYEMS':'mensal','ICSA':'semanal','GDPC1':'trimestral','RSAFS':'mensal'}
+CADENCE={'DFEDTARU':'por decisão do Fed','DGS2':'diária (dias úteis)','DGS10':'diária (dias úteis)','DFII5':'diária (dias úteis)','DFII10':'diária (dias úteis)','T5YIE':'diária (dias úteis)','T10YIE':'diária (dias úteis)','VIXCLS':'diária (dias úteis)','CPIAUCSL':'mensal','CPILFESL':'mensal','PCEPI':'mensal','PCEPILFE':'mensal','UNRATE':'mensal','PAYEMS':'mensal','ICSA':'semanal','GDPC1':'trimestral','RSAFS':'mensal','INDPRO':'mensal','DGORDER':'mensal'}
 
 def session_start(now=None):
  now=(now or datetime.now(timezone.utc)).astimezone(BRASILIA)
@@ -248,7 +246,7 @@ GROUP_MIN={'Juros/Fed':2,'Emprego':2,'Atividade':2,'Juros reais':2,'Condições 
 GROUP_METRICS={
  'Juros/Fed':[('DGS2','delta',.10,1),('DGS10','delta',.10,1)],
  'Emprego':[('PAYEMS','delta',250,1),('UNRATE','delta',.15,-1),('ICSA','delta',15000,-1)],
- 'Atividade':[('GDPC1','pct',.6,1),('RSAFS','pct',1.0,1)],
+ 'Atividade':[('GDPC1','pct',.6,1),('RSAFS','pct',1.0,1),('INDPRO','pct',1.0,1),('DGORDER','pct',3.0,1)],
  'Juros reais':[('DFII5','delta',.10,-1),('DFII10','delta',.10,-1)],
  'Condições USD':[('DGS2','delta',.10,-1),('DGS10','delta',.10,-1)],
  'Inflação implícita':[('T5YIE','delta',.10,1),('T10YIE','delta',.10,1)]
@@ -318,7 +316,7 @@ def audit_detail():
 
 def series_diagnostic():
  # These statuses describe data eligibility, not whether a series directly drives a group.
- used={'DGS2','DGS10','DFII5','DFII10','T5YIE','T10YIE','UNRATE','PAYEMS','ICSA','GDPC1','RSAFS'}
+ used={'DGS2','DGS10','DFII5','DFII10','T5YIE','T10YIE','UNRATE','PAYEMS','ICSA','GDPC1','RSAFS','INDPRO','DGORDER'}
  out={}
  for sid,name in SERIES.items():
   obj=state['series'].get(sid)
@@ -346,7 +344,7 @@ GROUP_INPUTS={
   'Juros/Fed':['DGS2','DGS10'],
   'Inflação':['CPIAUCSL','CPILFESL','PCEPI','PCEPILFE'],
   'Emprego':['PAYEMS','UNRATE','ICSA'],
-  'Atividade':['GDPC1','RSAFS'],
+  'Atividade':['GDPC1','RSAFS','INDPRO','DGORDER'],
   'Condições financeiras':['VIXCLS']},
  'GOLD':{
   'Juros reais':['DFII5','DFII10'],
@@ -354,9 +352,28 @@ GROUP_INPUTS={
   'Inflação implícita':['T5YIE','T10YIE'],
   'Risco global':['VIXCLS']}}
 GROUP_LIMITATIONS={
- ('USD','Inflação'):'Sem dados de surpresa frente ao consenso ou modelo validado de reação monetária. CPI/PCE são coletados, mas não geram viés direcional automaticamente.',
+ ('USD','Inflação'):'Inflação estrutural exibida em seção própria; sem consenso ou modelo validado de reação monetária, não gera viés direcional automaticamente.',
  ('USD','Condições financeiras'):'VIX isolado não representa condições financeiras dos EUA nem define o sentido do dólar. Necessário índice de condições financeiras validado.',
  ('GOLD','Risco global'):'VIX isolado não determina o sentido do ouro. Necessário modelo validado de aversão a risco e regime de mercado.'}
+
+def structural_inflation():
+ """Observed inflation levels and momentum, not consensus surprises or USD directional scores."""
+ result={}
+ for sid in ('CPIAUCSL','CPILFESL','PCEPI','PCEPILFE'):
+  obs=observation(sid)
+  row={'series_id':sid,'status':'indisponível','yoy_pct':None,'yoy_3m_ago_pct':None,'momentum_pp':None,'observation_date':None,'directional_score':None}
+  if obs:
+   row['observation_date']=obs[0]['date']
+   # Require consecutive monthly observations, not merely 13 entries with gaps.
+   months=[int(o['date'][:4])*12+int(o['date'][5:7]) for o in obs]
+   valid=len(obs)>=16 and all(months[i]-months[i+1]==1 for i in range(15))
+   if valid and all(obs[i]['value']>0 for i in (0,3,12,15)):
+    yoy=100*(obs[0]['value']/obs[12]['value']-1)
+    prior=100*(obs[3]['value']/obs[15]['value']-1)
+    row.update(status='disponível',yoy_pct=round(yoy,3),yoy_3m_ago_pct=round(prior,3),momentum_pp=round(yoy-prior,3))
+   else:row['status']='histórico mensal insuficiente ou descontínuo'
+  result[sid]=row
+ return {'series':result,'method':'Variação em 12 meses e diferença contra a inflação anual de três meses atrás; sem consenso e sem pontuação direcional.','pmi':{'status':'aguardando fonte autorizada','manufacturing':None,'services':None}}
 
 def group_diagnostic():
  now=datetime.now(timezone.utc)
@@ -500,9 +517,9 @@ class Handler(BaseHTTPRequestHandler):
  def respond(self,code,obj):
   data=json.dumps(obj,ensure_ascii=False).encode('utf-8');self.send_response(code);self.send_header('Content-Type','application/json; charset=utf-8');self.send_header('Cache-Control','no-store');self.send_header('Content-Length',str(len(data)));self.end_headers();self.wfile.write(data)
  def do_GET(self):
-  if self.path=='/':
-   data=(ROOT/'index.html').read_bytes();self.send_response(200);self.send_header('Content-Type','text/html; charset=utf-8');self.send_header('Content-Length',str(len(data)));self.end_headers();self.wfile.write(data);return
-  if self.path=='/api/health':
+  if urllib.parse.urlsplit(self.path).path=='/':
+   data=(ROOT/'index.html').read_bytes() if (ROOT/'index.html').exists() else b'Atlas API online. Use /api/health';self.send_response(200);self.send_header('Content-Type','text/html; charset=utf-8');self.send_header('Content-Length',str(len(data)));self.end_headers();self.wfile.write(data);return
+  if urllib.parse.urlsplit(self.path).path=='/api/health':
    try:
     with database() as conn:
      integrity=conn.execute('PRAGMA quick_check').fetchone()[0]
@@ -513,12 +530,12 @@ class Handler(BaseHTTPRequestHandler):
    except (sqlite3.Error,OSError) as exc:
     self.respond(503,{'version':MODEL_VERSION,'database_integrity':'error','detail':type(exc).__name__})
    return
-  if self.path=='/api/status':
-   with lock:self.respond(200,{'data':{**state,'history':meaningful_history()[-30:]},'scores':calc(),'catalog':SERIES,'configured':bool(get_key()),'model_version':MODEL_VERSION,'validation':model_validation(),'audit_detail':audit_detail(),'balance':{a:score_balance(a,audit_detail()[a]) for a in ('USD','GOLD')},'group_diagnostic':group_diagnostic(),'diagnostic':series_diagnostic(),'session_baselines':state.get('session_baselines',{}),'session_start':session_start().isoformat()});return
-  if self.path=='/api/audit':
+  if urllib.parse.urlsplit(self.path).path=='/api/status':
+   with lock:self.respond(200,{'data':{**state,'history':meaningful_history()[-30:]},'scores':calc(),'catalog':SERIES,'configured':bool(get_key()),'model_version':MODEL_VERSION,'validation':model_validation(),'audit_detail':audit_detail(),'balance':{a:score_balance(a,audit_detail()[a]) for a in ('USD','GOLD')},'group_diagnostic':group_diagnostic(),'structural_inflation':structural_inflation(),'diagnostic':series_diagnostic(),'session_baselines':state.get('session_baselines',{}),'session_start':session_start().isoformat()});return
+  if urllib.parse.urlsplit(self.path).path=='/api/audit':
    with lock:
     result={'version':MODEL_VERSION,'time_utc':datetime.now(timezone.utc).isoformat(),
-      'scores':calc(),'validation':model_validation(),'detail':audit_detail(),'group_diagnostic':group_diagnostic(),'series':series_diagnostic(),'auto_events':state.get('auto_events',[])[-50:],
+      'scores':calc(),'validation':model_validation(),'detail':audit_detail(),'group_diagnostic':group_diagnostic(),'structural_inflation':structural_inflation(),'series':series_diagnostic(),'auto_events':state.get('auto_events',[])[-50:],
       'history_count':len(state.get('history',[])),'audit_events':state.get('audit_events',[])[-100:]}
     for sid,name in SERIES.items():
      obj=state['series'].get(sid,{})
@@ -527,8 +544,8 @@ class Handler(BaseHTTPRequestHandler):
        'fresh_days_limit':FRESH_DAYS.get(sid)}
     self.respond(200,result)
    return
-  if self.path=='/api/calibration':
-   report_path=DATA_DIR/'calibracao_atlas.json'
+  if urllib.parse.urlsplit(self.path).path=='/api/calibration':
+   report_path=ROOT/'calibracao_atlas.json'
    if not report_path.exists():
     self.respond(200,{'available':False,'message':'Execute calibrate_signals.py após gerar validacao_atlas.json.'});return
    try:
@@ -538,8 +555,8 @@ class Handler(BaseHTTPRequestHandler):
     self.respond(200,{'available':True,'data':{**report,'groups':report['groups'][:20]}})
    except (ValueError,OSError,json.JSONDecodeError) as exc:self.respond(200,{'available':False,'message':'Relatório inválido: '+str(exc)})
    return
-  if self.path=='/api/backtest':
-   report_path=DATA_DIR/'validacao_atlas.json'
+  if urllib.parse.urlsplit(self.path).path=='/api/backtest':
+   report_path=ROOT/'validacao_atlas.json'
    if not report_path.exists():
     self.respond(200,{'available':False,'message':'Execute validate_history.py com --out validacao_atlas para gerar o relatório.'});return
    try:
@@ -552,7 +569,7 @@ class Handler(BaseHTTPRequestHandler):
                       'limitations':report.get('limitations',[])})
    except (ValueError,OSError,json.JSONDecodeError) as exc:self.respond(200,{'available':False,'message':'Relatório inválido: '+str(exc)})
    return
-  if self.path=='/api/history':
+  if urllib.parse.urlsplit(self.path).path=='/api/history':
    with lock:
     per_asset=state.get('change_history',{})
     # Migração compatível: reconstrói apenas registros já existentes, sem criar dados retroativos.
@@ -573,9 +590,9 @@ class Handler(BaseHTTPRequestHandler):
    length=int(self.headers.get('Content-Length','0'))
    if length>15000:raise ValueError('Requisição grande demais')
    body=json.loads(self.rfile.read(length)) if length else {}
-   if self.path=='/api/refresh':
+   if urllib.parse.urlsplit(self.path).path=='/api/refresh':
     threading.Thread(target=refresh,daemon=True).start();self.respond(202,{'message':'Consulta iniciada'});return
-   if self.path=='/api/events':
+   if urllib.parse.urlsplit(self.path).path=='/api/events':
     title=str(body.get('title','')).strip()[:120]
     if not title:raise ValueError('Título obrigatório')
     usd=int(body.get('usd_impact',0));gold=int(body.get('gold_impact',0))
@@ -587,7 +604,6 @@ class Handler(BaseHTTPRequestHandler):
   except Exception as exc:self.respond(400,{'error':str(exc)})
  def log_message(self,format,*args):pass
 if __name__=='__main__':
- port=int(os.environ.get('PORT','8765'))
- print(f'Atlas USD & Gold Macro: porta {port}',flush=True)
+ print('Atlas USD & Gold Macro: http://127.0.0.1:8765')
  threading.Thread(target=worker,daemon=True).start()
- ThreadingHTTPServer(('0.0.0.0',port),Handler).serve_forever()
+ ThreadingHTTPServer(('127.0.0.1',8765),Handler).serve_forever()
