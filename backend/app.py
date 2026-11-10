@@ -7,7 +7,7 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parent
 STATE=ROOT/'state.json'
 DB=ROOT/'atlas.db'
-MODEL_VERSION='3.0-rc5-experimental'
+MODEL_VERSION='3.0-rc6-experimental'
 
 @contextmanager
 def database():
@@ -365,6 +365,29 @@ def short_metric(sid,direction,horizon,now=None,window=None):
  except (ValueError,TypeError,KeyError,OverflowError):
   return {'series_id':sid,'score':None,'reason':'observações inválidas'}
 
+# RC6: diagnóstico de decomposição de 10 anos; não duplica o juro nominal.
+# Aproximação nominal 10a = real 10a + breakeven 10a; os instrumentos
+# têm características próprias e a identidade não é exata.
+def independent_factor_diagnostic(horizon,now=None,window=None):
+ now=now or datetime.now(timezone.utc)
+ window=window if window is not None else short_common_window(horizon,now)
+ if 'from_date' not in window:
+  return {'available':False,'reason':window.get('reason','sem janela comum')}
+ def delta(sid):
+  o=observation(sid,now)
+  if not o:return None
+  by_day={r['date']:float(r['value']) for r in o}
+  if window['from_date'] not in by_day or window['to_date'] not in by_day:return None
+  return by_day[window['to_date']]-by_day[window['from_date']]
+ real=delta('DFII10');inflation=delta('T10YIE');nominal=delta('DGS10')
+ if None in (real,inflation,nominal):return {'available':False,'reason':'faltam séries de 10 anos elegíveis'}
+ residual=nominal-real-inflation
+ return {'available':True,'window':{'from_date':window['from_date'],'to_date':window['to_date']},
+         'factors':{'real_yield_10y_delta_pp':round(real,5),'breakeven_10y_delta_pp':round(inflation,5)},
+         'nominal_10y_delta_pp':round(nominal,5),'decomposition_residual_pp':round(residual,5),
+         'independent_factors':2,'nominal_counted_as_independent':False,
+         'note':'Diagnóstico de dois fatores, sem score direcional: o juro nominal é conferência, não terceiro voto. Resíduo pode refletir bases, liquidez e diferenças instrumentais.'}
+
 def short_term_model(now=None):
  now=now or datetime.now(timezone.utc)
  result={}
@@ -396,9 +419,9 @@ def short_term_model(now=None):
     'DIVERGÊNCIA: curto prazo e estrutural em sentidos opostos' if divergent else
     'SEM COMPARAÇÃO: uma das pontuações indisponível' if recent is None or base is None else
     'SEM OPOSIÇÃO DE SINAL: não implica concordância forte')
- return {'horizons':result,'source':'FRED (observações diárias)',
+ return {'horizons':result,'factor_diagnostics':{h:independent_factor_diagnostic(h,now,short_common_window(h,now)) for h in ('1d','5d')},'validation_readiness':{'historical_short_term_signals_available':False,'out_of_sample_validated':False,'reason':'O histórico do score estrutural não substitui snapshots prospectivos do score de curto prazo. Utilize validate_short_term.py com sinais registrados e preços externos.'},'source':'FRED (observações diárias)',
          'updated_at':now.isoformat(),
-         'limitations':['RC5: comparação feita nas mesmas datas para os seis drivers; janela sem sincronização bloqueia a pontuação.',
+         'limitations':['RC6: janelas sincronizadas; diagnóstico de dois fatores (real 10a e breakeven 10a) sem contar nominal como fator independente.',
                         'A leitura de 1 dia usa um intervalo comum entre observações, não preços intradiários.',
                         'O horizonte de 5 dias usa cinco intervalos comuns, não uma previsão para os próximos cinco dias.',
                         'Juros nominais, reais e inflação implícita são correlacionados: risco de dupla contagem permanece; pesos não recalibrados.',
@@ -600,6 +623,19 @@ def snapshot(reason='manual_event',economic_events=None):
    'scores':deepcopy(scores),'note':'primeira observação disponível; não necessariamente às 04:00'}
  if len(baselines)>400:
   for key in sorted(baselines)[:-400]:del baselines[key]
+ # Registro prospectivo do sinal de curto prazo: usa o horário real da leitura,
+ # nunca retrodata o sinal para a data econômica da observação.
+ short_history=state.setdefault('short_signal_history',[])
+ existing={(r['asset'],r['horizon'],r.get('window_end'),r.get('model_version')) for r in short_history}
+ for horizon,assets in short_term_model(now)['horizons'].items():
+  for asset,item in assets.items():
+   window_end=item.get('window',{}).get('to_date')
+   identity=(asset,horizon,window_end,MODEL_VERSION)
+   if item.get('score') is not None and window_end and identity not in existing:
+    short_history.append({'signal_time_utc':now.isoformat(),'asset':asset,'horizon':horizon,
+     'score':item['score'],'coverage':item['coverage'],'window_end':window_end,
+     'model_version':MODEL_VERSION,'record_type':'prospective_observation'})
+    existing.add(identity)
  history=state.setdefault('history',[])
  previous=history[-1].get('scores',{}) if history else {}
  changed={asset:previous.get(asset,{}).get('score')!=scores[asset]['score'] for asset in ('USD','GOLD')}
@@ -660,6 +696,10 @@ class Handler(BaseHTTPRequestHandler):
    except (sqlite3.Error,OSError) as exc:
     self.respond(503,{'version':MODEL_VERSION,'database_integrity':'error','detail':type(exc).__name__})
    return
+  if urllib.parse.urlsplit(self.path).path=='/api/short-signals':
+   with lock:self.respond(200,{'version':MODEL_VERSION,'count':len(state.get('short_signal_history',[])),
+    'signals':state.get('short_signal_history',[]),
+    'note':'Snapshots prospectivos; o horário do sinal é a hora real de registro, não a data da observação FRED. Ainda faltam preços externos para validação.'});return
   if urllib.parse.urlsplit(self.path).path=='/api/status':
    with lock:self.respond(200,{'data':{**state,'history':meaningful_history()[-30:]},'scores':calc(),'catalog':SERIES,'configured':bool(get_key()),'model_version':MODEL_VERSION,'validation':model_validation(),'audit_detail':audit_detail(),'balance':{a:score_balance(a,audit_detail()[a]) for a in ('USD','GOLD')},'group_diagnostic':group_diagnostic(),'structural_inflation':structural_inflation(),'short_term':short_term_model(),'diagnostic':series_diagnostic(),'session_baselines':state.get('session_baselines',{}),'session_start':session_start().isoformat()});return
   if urllib.parse.urlsplit(self.path).path=='/api/audit':
