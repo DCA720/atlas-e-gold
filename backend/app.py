@@ -7,7 +7,7 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parent
 STATE=ROOT/'state.json'
 DB=ROOT/'atlas.db'
-MODEL_VERSION='3.0-rc3-experimental'
+MODEL_VERSION='3.0-rc4-experimental'
 
 @contextmanager
 def database():
@@ -297,6 +297,73 @@ def calc():
   return {'score':total,'bias':'ALTISTA' if total>=20 else 'BAIXISTA' if total<=-20 else 'NEUTRO','coverage':coverage,'groups':groups,'manual_adjustment':adj}
  return {'USD':pack(usd,WEIGHTS_USD,'USD'),'GOLD':pack(gold,WEIGHTS_GOLD,'GOLD')}
 
+# RC4: score experimental de curto prazo separado do contexto estrutural.
+# Apenas variações observadas em juros diários; FRED NÃO é feed intradiário.
+SHORT_WEIGHTS={
+ 'USD':{'Juros nominais':55,'Juros reais':25,'Inflação implícita':20},
+ 'GOLD':{'Juros reais':55,'Juros nominais':25,'Inflação implícita':20},
+}
+SHORT_GROUPS={
+ 'USD':{'Juros nominais':[('DGS2',1),('DGS10',1)],
+        'Juros reais':[('DFII5',1),('DFII10',1)],
+        'Inflação implícita':[('T5YIE',1),('T10YIE',1)]},
+ 'GOLD':{'Juros reais':[('DFII5',-1),('DFII10',-1)],
+         'Juros nominais':[('DGS2',-1),('DGS10',-1)],
+         'Inflação implícita':[('T5YIE',1),('T10YIE',1)]},
+}
+
+def short_metric(sid,direction,horizon,now=None):
+ now=now or datetime.now(timezone.utc)
+ observations=observation(sid,now)
+ if not observations:return {'series_id':sid,'score':None,'reason':'série indisponível ou coleta vencida'}
+ try:
+  latest=datetime.fromisoformat(observations[0]['date']).date()
+  if (now.date()-latest).days>4:
+   return {'series_id':sid,'score':None,'reason':'observação diária antiga'}
+  # D+1: comparação com a sessão anterior. D+5: cinco intervalos de observação.
+  steps=1 if horizon=='1d' else 5
+  if len(observations)<=steps:return {'series_id':sid,'score':None,'reason':'histórico diário insuficiente'}
+  previous=datetime.fromisoformat(observations[steps]['date']).date()
+  gap=(latest-previous).days
+  if gap<steps or gap>(5 if horizon=='1d' else 14):
+   return {'series_id':sid,'score':None,'reason':'intervalo de observações inconsistente'}
+  delta=float(observations[0]['value'])-float(observations[steps]['value'])
+  # Escala heurística, NÃO calibrada. 10bp (dia) ou 25bp (semana) => 50 pontos.
+  scale=.10 if horizon=='1d' else .25
+  return {'series_id':sid,'score':score(direction*delta,scale),
+          'delta_pp':round(delta,5),'from_date':previous.isoformat(),
+          'to_date':latest.isoformat(),'reason':'observado (não é cotação ao vivo)'}
+ except (ValueError,TypeError,KeyError,OverflowError):
+  return {'series_id':sid,'score':None,'reason':'observações inválidas'}
+
+def short_term_model(now=None):
+ now=now or datetime.now(timezone.utc)
+ result={}
+ for horizon in ('1d','5d'):
+  result[horizon]={}
+  for asset,groups in SHORT_GROUPS.items():
+   group_results={};coverage=0;weighted=0
+   for name,metrics in groups.items():
+    rows=[short_metric(sid,direction,horizon,now) for sid,direction in metrics]
+    values=[r['score'] for r in rows if r['score'] is not None]
+    value=round(sum(values)/len(values)) if len(values)==len(metrics) else None
+    group_results[name]={'score':value,'metrics':rows}
+    if value is not None:
+     weight=SHORT_WEIGHTS[asset][name];coverage+=weight;weighted+=weight*value
+   total=max(-100,min(100,round(weighted/coverage))) if coverage>=60 else None
+   result[horizon][asset]={
+    'score':total,'bias':('DADOS INSUFICIENTES' if total is None else
+                       'ALTISTA' if total>=20 else 'BAIXISTA' if total<=-20 else 'NEUTRO'),
+    'coverage':coverage,'groups':group_results,'horizon':horizon,
+    'assessment':'EXPERIMENTAL — não validado estatisticamente',
+    'note':'Mudanças de juros observadas no FRED; não representa preços intradiários, consenso, probabilidade ou previsão validada.'}
+ return {'horizons':result,'source':'FRED (observações diárias)',
+         'updated_at':now.isoformat(),
+         'limitations':['Sem dados intradiários: a leitura de 1 dia usa as últimas duas observações disponíveis.',
+                        'O horizonte de 5 dias usa cinco intervalos de observações, não uma previsão para os próximos cinco dias.',
+                        'Juros nominais, reais e inflação implícita podem estar correlacionados; pesos e limites são heurísticos.',
+                        'Dados FRED podem sofrer revisão. Não usar como gatilho de operação.']}
+
 def audit_detail():
  # Contribution = group score * configured weight / available-weight coverage.
  # It explains the model output; it is not a statistical attribution or causal proof.
@@ -554,11 +621,11 @@ class Handler(BaseHTTPRequestHandler):
     self.respond(503,{'version':MODEL_VERSION,'database_integrity':'error','detail':type(exc).__name__})
    return
   if urllib.parse.urlsplit(self.path).path=='/api/status':
-   with lock:self.respond(200,{'data':{**state,'history':meaningful_history()[-30:]},'scores':calc(),'catalog':SERIES,'configured':bool(get_key()),'model_version':MODEL_VERSION,'validation':model_validation(),'audit_detail':audit_detail(),'balance':{a:score_balance(a,audit_detail()[a]) for a in ('USD','GOLD')},'group_diagnostic':group_diagnostic(),'structural_inflation':structural_inflation(),'diagnostic':series_diagnostic(),'session_baselines':state.get('session_baselines',{}),'session_start':session_start().isoformat()});return
+   with lock:self.respond(200,{'data':{**state,'history':meaningful_history()[-30:]},'scores':calc(),'catalog':SERIES,'configured':bool(get_key()),'model_version':MODEL_VERSION,'validation':model_validation(),'audit_detail':audit_detail(),'balance':{a:score_balance(a,audit_detail()[a]) for a in ('USD','GOLD')},'group_diagnostic':group_diagnostic(),'structural_inflation':structural_inflation(),'short_term':short_term_model(),'diagnostic':series_diagnostic(),'session_baselines':state.get('session_baselines',{}),'session_start':session_start().isoformat()});return
   if urllib.parse.urlsplit(self.path).path=='/api/audit':
    with lock:
     result={'version':MODEL_VERSION,'time_utc':datetime.now(timezone.utc).isoformat(),
-      'scores':calc(),'validation':model_validation(),'detail':audit_detail(),'group_diagnostic':group_diagnostic(),'structural_inflation':structural_inflation(),'series':series_diagnostic(),'auto_events':state.get('auto_events',[])[-50:],
+      'scores':calc(),'validation':model_validation(),'detail':audit_detail(),'group_diagnostic':group_diagnostic(),'structural_inflation':structural_inflation(),'short_term':short_term_model(),'series':series_diagnostic(),'auto_events':state.get('auto_events',[])[-50:],
       'history_count':len(state.get('history',[])),'audit_events':state.get('audit_events',[])[-100:]}
     for sid,name in SERIES.items():
      obj=state['series'].get(sid,{})
