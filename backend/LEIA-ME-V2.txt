@@ -1,0 +1,18 @@
+ATLAS USD & GOLD MACRO — VERSÃO 2.1 EXPERIMENTAL
+
+INSTALAÇÃO
+1. Faça backup da pasta atual do Atlas, incluindo state.json e .env.
+2. Extraia este ZIP e copie o .env antigo para a pasta Atlas nova.
+3. Encerre o servidor anterior; execute INICIAR_WINDOWS.bat.
+4. Abra http://127.0.0.1:8765 e confira a versão 2.1.
+
+MUDANÇAS
+- Cobertura mínima por grupo: 2 séries para juros, atividade, emprego, juros reais, condições USD e inflação implícita.
+- Variações efetivas por série, unidade e nota experimental exibidas no diagnóstico.
+- Limites de idade de CPI/PCE e varejo ajustados à defasagem típica, sem afirmar horário oficial de divulgação.
+- Inflação CPI/PCE segue sem pontuação automática por falta de surpresa contra consenso validada.
+- Histórico e gráfico mantêm a regra de novo ponto somente quando a pontuação muda.
+- Modelo alterado: eventual mudança de pontuação na primeira execução decorre da nova metodologia, não necessariamente de notícia econômica.
+
+LIMITAÇÕES: Pesos, escalas e limites são experimentais e não passaram por backtest.
+Não utilizar como gatilho de operações.

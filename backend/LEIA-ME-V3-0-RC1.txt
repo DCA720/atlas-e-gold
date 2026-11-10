@@ -1,0 +1,23 @@
+ATLAS USD & GOLD MACRO — 3.0 RC1 (candidata; NÃO versão final validada)
+
+Mudanças operacionais:
+- Conexões SQLite encerradas corretamente, inclusive após erros.
+- Transações SQLite com rollback se uma gravação falhar.
+- Após reinicialização, indicador não fica preso no status "Consultando FRED".
+- Worker periódico tolera exceções e continua tentando no ciclo seguinte.
+- Endpoint GET /api/health para verificar integridade básica do banco e situação da coleta.
+- Fórmulas, pesos e limites de pontuação preservados.
+
+INSTALAÇÃO: faça backup com o Atlas desligado (atlas.db, .env, relatórios e CSVs).
+Extraia em pasta nova; copie arquivos de dados e configurações; execute INICIAR_WINDOWS.bat.
+Não publique .env, atlas.db ou dados privados na hospedagem estática.
+
+TESTES: python -m unittest discover -p "test_*.py" -v
+DIAGNÓSTICO LOCAL: http://127.0.0.1:8765/api/health
+
+PENDÊNCIAS PARA APROVAR VERSÃO FINAL:
+1. Testes de execução prolongada e recuperação com FRED real (não feitos aqui).
+2. Validar disponibilidade, horário e histórico de divulgação das séries.
+3. Verificar qualidade das cotações DXY e ouro, incluindo proxy de futuro vs spot.
+4. Validar resultados estatísticos fora da amostra com sinais suficientes.
+5. Revisar publicação online e controles de segurança quando chegar a etapa acordada.

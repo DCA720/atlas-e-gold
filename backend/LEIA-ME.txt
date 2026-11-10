@@ -1,0 +1,27 @@
+ATLAS USD & GOLD MACRO v1.0 — EXPERIMENTAL
+
+REQUISITO: Windows 11 e Python 3.10+ instalado (https://www.python.org/downloads/windows/).
+Na instalação, marque a opção para adicionar Python ao PATH.
+
+1. Extraia o ZIP para uma pasta do computador.
+2. Copie .env.example e renomeie a cópia para .env (mantenha .env.example como modelo).
+3. Abra .env no Bloco de Notas e substitua COLE_SUA_CHAVE_PRIVADA_AQUI por uma NOVA chave privada FRED.
+4. Salve .env. NÃO envie este arquivo, não publique e não inclua em repositórios.
+5. Dê duplo clique em INICIAR_WINDOWS.bat.
+6. Abra http://127.0.0.1:8765 no navegador. Aguarde a primeira coleta; são várias séries.
+7. Para encerrar, feche a janela do terminal.
+
+OBSERVAÇÕES:
+- O painel funciona somente neste computador (127.0.0.1).
+- Nenhuma biblioteca Python externa é necessária.
+- A primeira coleta pode levar alguns minutos; atualizações a cada 15 minutos.
+- Dados de eventos manuais e cache das séries ficam no arquivo local state.json.
+- A chave FRED nunca é devolvida ao navegador e não é salva no state.json.
+- O indicador é protótipo de infraestrutura e fórmula heurística, SEM VALIDAÇÃO OU BACKTEST.
+- As variações mensais usam diferença absoluta de índice e não inflação anual.
+- VIX aparece apenas como dado de referência; não determina automaticamente viés do ouro.
+- Eventos manuais exigem interpretação humana e expiram 24h após o registro.
+- Não há integração MT5, proteção por senha, nem histórico de sinais nesta versão.
+- Dados podem estar defasados e não há garantia de direção dos mercados.
+
+SE A CHAVE NÃO FUNCIONAR: verifique a configuração, conexão com a internet e validade da chave.

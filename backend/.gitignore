@@ -1,0 +1,7 @@
+.env
+state.json
+__pycache__/
+
+atlas.db
+atlas.db-shm
+atlas.db-wal

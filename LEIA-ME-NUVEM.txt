@@ -1,0 +1,19 @@
+ATLAS 3.0 RC1 — NETLIFY + RENDER (PACOTE DE PUBLICAÇÃO)
+
+1. BACKEND: coloque esta pasta em um repositório Git privado (não inclua .env ou atlas.db).
+2. RENDER: crie um Blueprint a partir do repositório, apontando para render.yaml na raiz do repositório.
+   Se o repositório contiver a pasta backend, mova render.yaml para a raiz (mantendo rootDir: backend).
+   Escolha serviço com disco persistente (plano pago); confirme os preços antes de ativar.
+   Informe FRED_API_KEY como variável secreta no painel Render. Nunca cole a chave em arquivos públicos.
+3. Após publicar, teste https://SEU-SERVICO.onrender.com/api/health e /api/status.
+4. NETLIFY: edite netlify/_redirects e substitua SUBSTITUA-PELO-SERVICO.onrender.com pelo host real do Render.
+   Faça deploy da pasta netlify no site existente. O proxy /api/* evita problemas de CORS.
+5. Teste https://elaborate-gnome-96b42f.netlify.app/api/health e confira se a interface mostra as pontuações.
+6. Banco: esta instalação inicia com histórico novo; migração do atlas.db exige transferi-lo com o servidor parado para /var/data/atlas.db.
+7. Coleta de preços: market_prices.py ainda exige processo próprio, não é iniciado automaticamente pelo serviço web.
+8. Para persistir relatórios/CSV, configure seus caminhos no volume /var/data; o banco já usa ATLAS_DATA_DIR.
+9. O endpoint /api/events e a atualização manual /api/refresh continuam sem autenticação nesta RC1.
+   Evite divulgar o endereço até implementar controle de acesso.
+10. Testes de disponibilidade, preços FRED e persistência no Render NÃO foram realizados aqui.
+
+OBS: Não alteramos fórmulas macroeconômicas nem a metodologia de validação.

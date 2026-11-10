@@ -1,0 +1,16 @@
+ATLAS 2.9.2 — PAINEL DE MONITORAMENTO
+
+Melhorias:
+- Visão geral de USD, ouro, quantidade de séries com observação e amostras de validação.
+- Navegação direta entre as seções principais, com layout responsivo.
+- Avisos claros: cobertura e qualidade dos dados não são taxa de acerto.
+- Identificação 2.9.2 obtida do backend.
+- Motor de pontuação, pesos e histórico preservados.
+
+Instalação:
+1. Faça backup do atlas.db, .env e relatórios JSON/CSV da instalação atual.
+2. Extraia em pasta nova e copie os dados para ela.
+3. Execute INICIAR_WINDOWS.bat e abra o endereço local exibido.
+4. Os relatórios de validação continuam dependendo dos scripts das versões anteriores.
+
+Limitações: sem validação com FRED ao vivo, sem taxa de acerto comprovada.

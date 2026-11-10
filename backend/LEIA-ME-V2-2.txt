@@ -1,0 +1,26 @@
+ATLAS USD & GOLD MACRO v2.2 — revisão estrutural experimental
+
+INICIAR
+1. Instale Python 3.9+ no Windows (recomendado 3.11+).
+2. Copie .env.example para .env e insira SUA chave FRED privada.
+3. Execute INICIAR_WINDOWS.bat; acesse http://127.0.0.1:8765.
+4. Não publique a pasta com .env ou atlas.db.
+
+MUDANÇAS IMPLEMENTADAS
+- Persistência SQLite (atlas.db), com migração automática de state.json na primeira inicialização.
+- Não apague state.json original: guarde como backup antes da primeira execução.
+- Atualizações FRED coletadas fora do bloqueio, publicadas juntas no estado.
+- Recalculo temporal a cada minuto, sem criar pontos quando a nota não mudar.
+- Histórico não é mais eliminado automaticamente após 90 dias.
+- Registros de alterações de pontuação em ledger SQLite.
+- Identificação da versão do modelo e marco de mudança metodológica.
+- Credencial .env removida da distribuição.
+
+LIMITAÇÕES IMPORTANTES
+- Fórmulas e pesos econômicos continuam EXPERIMENTAIS e NÃO validados estatisticamente.
+- FRED não fornece necessariamente o horário oficial de divulgação; detecção não é publicação.
+- A coleta de observações ainda usa janela limitada de 20 registros; revisões históricas fora dela podem passar despercebidas.
+- A verificação de atualidade ainda é baseada em limites fixos por série, sem calendário oficial.
+- A interface mantém a identidade visual da versão 2.1.
+- Banco SQLite é local. Faça backups com o servidor fechado.
+- Não usar como gatilho de operação financeira.

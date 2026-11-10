@@ -1,0 +1,14 @@
+ATLAS 2.9.1 — CALIBRAÇÃO DESCRITIVA DOS SINAIS
+
+Novidade: comparação dos limites ±20 (padrão), ±30, ±40, ±50 e ±60, por ativo e horizonte, em partição cronológica 70% treino / 30% teste.
+Não modifica o cálculo macro nem escolhe automaticamente o limiar. Exibe amostras insuficientes quando treino <30 ou teste <20.
+
+1. Faça backup do atlas.db e .env e preserve-os na instalação nova.
+2. Execute normalmente a coleta de preços e a validação histórica para gerar validacao_atlas.json:
+   python validate_history.py --prices precos_mercado.csv --out validacao_atlas
+   (Confirme o nome real do CSV criado pela sua coleta de preços.)
+3. Execute: python calibrate_signals.py
+4. Abra o Atlas: a seção Calibração de sinais mostrará o relatório.
+5. Testes: python -m unittest discover -p "test_*.py"
+
+LIMITAÇÕES: Sem dados suficientes, nenhuma conclusão estatística é possível. A divisão cronológica é uma comparação descritiva, não uma validação independente definitiva. Janelas podem se sobrepor; não há custos operacionais nem análise de vintages históricos. Dados simulados nos testes não são resultados de mercado.

@@ -1,0 +1,12 @@
+ATLAS 2.9 — INTEGRIDADE MACROECONÔMICA
+
+- Primeira coleta registrada (first_seen_at) preservada entre atualizações; não é horário oficial de publicação.
+- Verificação de consistência entre a observação mais recente e a série recente.
+- Datas duplicadas removidas na coleta FRED.
+- Aviso explícito de que vintages históricos ALFRED não são utilizados.
+- Registro de revisões e novas observações permanece na auditoria.
+- Pesos, fórmulas e limiares do modelo foram mantidos.
+
+LIMITAÇÕES: a coleta FRED fornece valores atuais e revisados. A primeira coleta não equivale à divulgação oficial. Não é possível afirmar ausência de look-ahead em backtest retroativo sem vintages e calendários de divulgação. Testes automatizados não validam precisão de mercado.
+
+INSTALAÇÃO: backup do atlas.db e .env; extrair numa pasta nova; copiar os dois arquivos privados para a nova pasta; executar INICIAR_WINDOWS.bat. Não publicar .env ou atlas.db.

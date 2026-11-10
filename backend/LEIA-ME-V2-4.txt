@@ -1,0 +1,14 @@
+ATLAS USD & GOLD MACRO — 2.4 EXPERIMENTAL
+
+Escopo: confiabilidade dos dados e rastreabilidade; pesos e fórmula de pontuação preservados.
+
+Mudanças:
+- Respostas FRED: filtra valores não numéricos, NaN, infinitos e datas futuras; ordena observações por data.
+- Elegibilidade: rejeita as duas observações mais recentes quando inválidas ou com datas repetidas.
+- Histórico gráfico: mudança de versão sem mudança de score não cria ponto sintético.
+- Diagnóstico: campo signal_quality separa indisponibilidade, cobertura limitada, divergência e condição experimental.
+- score_excludes enumera os grupos que não participam da nota.
+
+Verificação local: python -m unittest -v test_model
+Sem chave FRED no pacote. Não foram feitos testes de rede FRED ou backtest estatístico.
+Antes de instalar, faça backup de atlas.db e .env. Não substitua o banco por um vazio.

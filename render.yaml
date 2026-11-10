@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: atlas-usd-gold-api
+    runtime: python
+    plan: starter
+    rootDir: backend
+    buildCommand: "echo Atlas Python standard library"
+    startCommand: "python app.py"
+    healthCheckPath: /api/health
+    envVars:
+      - key: FRED_API_KEY
+        sync: false
+      - key: ATLAS_DATA_DIR
+        value: /var/data
+    disk:
+      name: atlas-data
+      mountPath: /var/data
+      sizeGB: 1

@@ -1,0 +1,23 @@
+ATLAS 2.7 — COLETA AUTOMÁTICA EXPERIMENTAL DE PREÇOS PARA VALIDAÇÃO
+
+1. Faça backup de atlas.db e .env. Não copie .env para terceiros.
+2. Inicie o Atlas normalmente com INICIAR_WINDOWS.bat.
+3. Na pasta Atlas, execute: python market_prices.py
+   Isso consulta dados horários e gera precos_mercado.csv e validacao_atlas.json.
+4. Para atualizar automaticamente a cada 60 minutos, mantenha aberto:
+   python market_prices.py --loop --interval-minutes 60
+5. A seção Validação histórica do painel lê validacao_atlas.json; recarregue o painel.
+6. A atualização só funciona com o computador ligado, internet e acesso ao provedor.
+7. Se o provedor falhar, não cria cotações falsas e preserva o relatório anterior.
+8. O endpoint Yahoo Finance chart é NÃO OFICIAL, sujeito a bloqueios e mudanças.
+9. Símbolos padrão: DX-Y.NYB (índice dólar, sujeito a indisponibilidade) e
+   GC=F (FUTURO de ouro, NÃO é XAU/USD spot). O ouro é um proxy e seus
+   resultados não podem ser rotulados como validação de XAU/USD spot.
+10. Não reconstruímos sinais históricos: só avaliamos os sinais gravados pelo Atlas.
+11. A série de preços tem candles de 1 hora; não permite validar com rigor
+    entradas intrabar ou resultados em horizontes curtos com precisão de minuto.
+12. O sistema não afirma taxa de acerto sem amostras. Não calcula custos de
+    operação, significância estatística ou probabilidade futura de sucesso.
+13. Se desejar dados de XAU/USD spot ou DXY licenciados, a arquitetura deverá
+    receber um provedor com API/documentação e permissão de uso apropriadas.
+14. Testes: python -m unittest discover -p "test*.py" -v

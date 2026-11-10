@@ -1,0 +1,15 @@
+ATLAS v2.2 — Correção de interface e diagnóstico (sem mudança no modelo de pontuação)
+
+1. O título de versão passa a ser lido de /api/status (model_version).
+2. Se a API falhar, o painel mostra um erro explícito em vez de apenas aguardar dados.
+3. Banco SQLite e arquivos WAL/SHM foram adicionados ao .gitignore.
+
+IMPORTANTE SOBRE NETLIFY:
+- O Netlify estático hospeda index.html, mas não executa app.py automaticamente.
+- A interface atual usa caminhos relativos /api/status, /api/history, /api/refresh e /api/events.
+- Para funcionar publicamente, é necessário hospedar o backend Python em serviço apropriado e configurar roteamento /api.
+- Antes de expor o backend na internet, implementar autenticação, limitação de requisições e proteção de operações de escrita.
+- Não publique o .env, a chave FRED, atlas.db ou arquivos de estado.
+
+Esta atualização NÃO altera cálculos econômicos nem valida os sinais para trading.
+Não substitua seu banco de dados atual; faça cópia de segurança antes de atualizar.

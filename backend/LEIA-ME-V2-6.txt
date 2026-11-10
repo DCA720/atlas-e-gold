@@ -1,0 +1,12 @@
+ATLAS 2.6 — RELATÓRIO DE VALIDAÇÃO NO PAINEL
+
+1. Preserve atlas.db e .env da instalação anterior. Faça backup antes.
+2. Prepare CSV de preços com timestamp,USD,GOLD (USD como proxy DXY, ouro como XAU/USD). Datas com fuso horário.
+3. Execute na pasta Atlas: python validate_history.py --prices meus_precos.csv --out validacao_atlas
+4. Inicie o Atlas com INICIAR_WINDOWS.bat. A seção “Validação histórica” mostra resultados por ativo e horizonte, amostras, taxa direcional e retorno médio.
+5. Sem CSV e sem relatório, o painel informa que a validação está indisponível; não inventa números.
+6. O relatório só contém sinais prospectivamente registrados; não é backtest retroativo.
+7. Os resultados não incluem custos de execução, significância estatística ou probabilidade preditiva.
+8. Testes: python -m unittest discover -p "test*.py" -v
+
+O modelo de pontuação não foi alterado. A versão 2.6 adiciona apenas a apresentação do relatório e uma API de leitura.

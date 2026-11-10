@@ -1,0 +1,27 @@
+ATLAS USD & GOLD MACRO — 2.3 experimental
+
+Objetivo: diagnóstico de confiabilidade operacional do modelo, sem afirmar precisão preditiva.
+
+MUDANÇAS
+- Modelo identificado como 2.3 experimental; interface recebe a versão da API.
+- API /api/status e /api/diagnostics expõem validation: cobertura, oposição entre forças,
+  quantidade de métricas elegíveis e avisos de interpretação.
+- Painel exibe diagnóstico por ativo, sem modificar os scores existentes.
+- Histórico sintético por ativo só adiciona ponto quando a pontuação muda;
+  uma mudança de versão não gera ponto artificial.
+- Detecção FRED reconhece novas observações posteriores à última data conhecida,
+  sem confundir observações históricas não coletadas com divulgações novas.
+- Testes unitários básicos em test_model.py.
+
+EXECUTAR TESTES
+Abra terminal na pasta Atlas e execute: python -m unittest -v test_model
+
+LIMITAÇÕES
+- Sem conexão FRED ao vivo nesta bateria de testes.
+- Não há backtest com timestamps oficiais de divulgação, consenso de mercado,
+  resultados de operações, custos, regimes ou validação fora da amostra.
+- Oposição e cobertura são diagnósticos descritivos; não equivalem a confiança estatística.
+- Fórmulas, pesos e limiares seguem experimentais e inalterados.
+- Faça backup de atlas.db, atlas.db-wal, atlas.db-shm e state.json (se existirem)
+  antes de substituir os arquivos. Não substitua seu banco pelos arquivos do ZIP.
+- Segurança da API não foi tratada nesta etapa, conforme prioridade definida.

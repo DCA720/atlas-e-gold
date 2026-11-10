@@ -1,0 +1,33 @@
+ATLAS 2.5 — VALIDAÇÃO HISTÓRICA PROSPECTIVA
+
+A versão 2.5 adiciona validate_history.py, sem modificar os cálculos da versão 2.4.
+O script lê o histórico efetivamente registrado no banco atlas.db e compara os
+sinais com preços posteriores fornecidos em CSV. NÃO fabrica sinais passados.
+
+1. Faça backup do atlas.db antes de atualizar o Atlas.
+2. Preserve o atlas.db e o .env na nova pasta Atlas.
+3. Prepare um CSV de preços com cabeçalho:
+   timestamp,USD,GOLD
+   2026-11-08T10:00:00Z,105.20,2690.50
+   2026-11-08T11:00:00Z,105.30,2694.00
+   (exemplo de FORMATO, não preços reais).
+   USD deve ser um proxy consistente, como DXY; GOLD, XAU/USD.
+   Use timestamps com fuso horário (UTC recomendado). A série deve cobrir os
+   instantes dos sinais e os horizontes desejados; dados intradiários são
+   necessários para horizontes de 1h/4h.
+4. No terminal dentro da pasta Atlas, execute:
+   python validate_history.py --prices meus_precos.csv --out relatorio
+5. Veja relatorio.json (resumo, amostras e limitações) e relatorio.csv
+   (cada comparação individual).
+6. Testes: python -m unittest discover -p "test*.py" -v
+
+REGRAS:
+- Apenas scores >= +20 ou <= -20 são sinais direcionais.
+- Usa a primeira cotação no instante do sinal ou DEPOIS, nunca antes.
+- Usa a primeira cotação no horizonte ou DEPOIS.
+- Descarta comparações quando a cotação estiver mais de 60 minutos atrasada.
+- Mede 1h, 4h e 24h por padrão; ajustável com --horizons 1,4,24.
+- O script NÃO valida pontuações anteriores ao início do registro, nem calcula
+  desempenho financeiro líquido ou probabilidade estatística de acerto.
+- A origem dos preços precisa ser verificada pelo usuário; não são baixados
+  preços automaticamente e nenhuma chave de API é necessária para o script.

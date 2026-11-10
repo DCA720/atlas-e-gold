@@ -1,0 +1,11 @@
+ATLAS 2.8 — VALIDAÇÃO ESTATÍSTICA DESCRITIVA
+
+Novidades: intervalo de Wilson 95% (não ajustado à dependência), mediana, comparador sempre alta, segmentação por força do sinal (20-39, 40-69, 70+), e subconjunto sem janelas sobrepostas.
+
+1. Preserve atlas.db e .env (não estão incluídos neste ZIP).
+2. Execute o Atlas e o coletor de preços conforme instruções anteriores.
+3. Execute: python validate_history.py --prices precos_mercado.csv --out validacao_atlas
+   Substitua precos_mercado.csv pelo CSV produzido pelo coletor, conforme LEIA-ME-V2-7.txt.
+4. Abra o painel para visualizar o relatório atualizado.
+
+ATENÇÃO: Estatísticas são descritivas. Não há inferência robusta de taxa de acerto, validação fora da amostra, nem comprovação de capacidade preditiva. O comparador sempre alta não é um benchmark de trading completo. As amostras sem sobreposição são uma análise de sensibilidade, não prova de independência entre regimes.
