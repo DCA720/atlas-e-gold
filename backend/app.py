@@ -603,7 +603,13 @@ class Handler(BaseHTTPRequestHandler):
    self.respond(404,{'error':'Não encontrado'})
   except Exception as exc:self.respond(400,{'error':str(exc)})
  def log_message(self,format,*args):pass
-if __name__=='__main__':
- print('Atlas USD & Gold Macro: http://127.0.0.1:8765')
- threading.Thread(target=worker,daemon=True).start()
- ThreadingHTTPServer(('127.0.0.1',8765),Handler).serve_forever()
+
+if __name__ == '__main__':
+    import os
+
+    port = int(os.environ.get('PORT', '8765'))
+    print(f'Atlas USD & Gold Macro: porta {port}', flush=True)
+
+    threading.Thread(target=worker, daemon=True).start()
+
+    ThreadingHTTPServer(('0.0.0.0', port), Handler).serve_forever()
