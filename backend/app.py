@@ -7,7 +7,7 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parent
 STATE=ROOT/'state.json'
 DB=ROOT/'atlas.db'
-MODEL_VERSION='3.0-rc2-experimental'
+MODEL_VERSION='3.0-rc3-experimental'
 
 @contextmanager
 def database():
@@ -71,7 +71,7 @@ def get_key():
  return key
 
 def fetch_one(sid,key):
- params=urllib.parse.urlencode({'series_id':sid,'api_key':key,'file_type':'json','sort_order':'desc','limit':20})
+ params=urllib.parse.urlencode({'series_id':sid,'api_key':key,'file_type':'json','sort_order':'desc','limit':48 if sid in ('CPIAUCSL','CPILFESL','PCEPI','PCEPILFE') else 20})
  req=urllib.request.Request('https://api.stlouisfed.org/fred/series/observations?'+params,headers={'User-Agent':'AtlasMacro/1.0'})
  try:
   with urllib.request.urlopen(req,timeout=22) as response:
@@ -99,7 +99,7 @@ def fetch_one(sid,key):
  obs=list({row['date']:row for row in reversed(obs)}.values())
  obs.sort(key=lambda row:row['date'],reverse=True)
  if not obs:raise ValueError('Sem observações numéricas válidas')
- return {'latest':obs[0],'previous':obs[1] if len(obs)>1 else None,'recent':obs[:20],'fetched_at':datetime.now(timezone.utc).isoformat()}
+ return {'latest':obs[0],'previous':obs[1] if len(obs)>1 else None,'recent':obs[:48] if sid in ('CPIAUCSL','CPILFESL','PCEPI','PCEPILFE') else obs[:20],'fetched_at':datetime.now(timezone.utc).isoformat()}
 
 refresh_lock=threading.Lock()
 def refresh():
@@ -357,23 +357,46 @@ GROUP_LIMITATIONS={
  ('GOLD','Risco global'):'VIX isolado não determina o sentido do ouro. Necessário modelo validado de aversão a risco e regime de mercado.'}
 
 def structural_inflation():
- """Observed inflation levels and momentum, not consensus surprises or USD directional scores."""
+ """Descriptive observed YoY inflation, with explicit monthly completeness checks."""
  result={}
  for sid in ('CPIAUCSL','CPILFESL','PCEPI','PCEPILFE'):
+  raw=state.get('series',{}).get(sid,{})
+  raw_recent=raw.get('recent',[])
   obs=observation(sid)
-  row={'series_id':sid,'status':'indisponível','yoy_pct':None,'yoy_3m_ago_pct':None,'momentum_pp':None,'observation_date':None,'directional_score':None}
-  if obs:
+  row={'series_id':sid,'status':'indisponível','yoy_pct':None,'yoy_3m_ago_pct':None,
+       'momentum_pp':None,'observation_date':raw.get('latest',{}).get('date'),
+       'directional_score':None,'observations_available':len(raw_recent),
+       'required_consecutive_months':16,'missing_months':[], 'diagnostic':None}
+  if not obs:
+   row['diagnostic']='Série ausente, vencida ou inelegível; consulte Diagnóstico FRED.'
+  else:
    row['observation_date']=obs[0]['date']
-   # Require consecutive monthly observations, not merely 13 entries with gaps.
-   months=[int(o['date'][:4])*12+int(o['date'][5:7]) for o in obs]
-   valid=len(obs)>=16 and all(months[i]-months[i+1]==1 for i in range(15))
-   if valid and all(obs[i]['value']>0 for i in (0,3,12,15)):
-    yoy=100*(obs[0]['value']/obs[12]['value']-1)
-    prior=100*(obs[3]['value']/obs[15]['value']-1)
-    row.update(status='disponível',yoy_pct=round(yoy,3),yoy_3m_ago_pct=round(prior,3),momentum_pp=round(yoy-prior,3))
-   else:row['status']='histórico mensal insuficiente ou descontínuo'
+   monthly={}
+   for o in obs:
+    try:
+     d=datetime.fromisoformat(o['date']).date()
+     if d.day==1 and isfinite(float(o['value'])) and float(o['value'])>0:
+      monthly[(d.year,d.month)]=float(o['value'])
+    except (ValueError,TypeError,KeyError,OverflowError):continue
+   base=datetime.fromisoformat(obs[0]['date']).date()
+   def month_back(i):
+    absolute=base.year*12+(base.month-1)-i
+    return (absolute//12,(absolute%12)+1)
+   required=[month_back(i) for i in range(16)]
+   missing=[f'{y:04d}-{m:02d}' for y,m in required if (y,m) not in monthly]
+   row['missing_months']=missing
+   if not missing:
+    yoy=100*(monthly[required[0]]/monthly[required[12]]-1)
+    prior=100*(monthly[required[3]]/monthly[required[15]]-1)
+    row.update(status='disponível',yoy_pct=round(yoy,3),
+               yoy_3m_ago_pct=round(prior,3),momentum_pp=round(yoy-prior,3),
+               diagnostic='16 meses consecutivos verificados; nenhuma lacuna.')
+   else:
+    row['status']='histórico mensal insuficiente ou descontínuo'
+    row['diagnostic']=f'{len(missing)} mês(es) ausente(s) nos 16 meses exigidos: '+', '.join(missing)
   result[sid]=row
- return {'series':result,'method':'Variação em 12 meses e diferença contra a inflação anual de três meses atrás; sem consenso e sem pontuação direcional.','pmi':{'status':'aguardando fonte autorizada','manufacturing':None,'services':None}}
+ return {'series':result,'method':'Inflação anual e variação em pontos percentuais contra três meses antes; sem interpolação, consenso ou pontuação direcional.',
+         'pmi':{'status':'aguardando fonte autorizada','manufacturing':None,'services':None}}
 
 def group_diagnostic():
  now=datetime.now(timezone.utc)
@@ -603,13 +626,8 @@ class Handler(BaseHTTPRequestHandler):
    self.respond(404,{'error':'Não encontrado'})
   except Exception as exc:self.respond(400,{'error':str(exc)})
  def log_message(self,format,*args):pass
-
-if __name__ == '__main__':
-    import os
-
-    port = int(os.environ.get('PORT', '8765'))
-    print(f'Atlas USD & Gold Macro: porta {port}', flush=True)
-
-    threading.Thread(target=worker, daemon=True).start()
-
-    ThreadingHTTPServer(('0.0.0.0', port), Handler).serve_forever()
+if __name__=='__main__':
+ port=int(os.environ.get('PORT','8765'))
+ print(f'Atlas USD & Gold Macro: porta {port}',flush=True)
+ threading.Thread(target=worker,daemon=True).start()
+ ThreadingHTTPServer(('0.0.0.0',port),Handler).serve_forever()
