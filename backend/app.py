@@ -7,7 +7,7 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parent
 STATE=ROOT/'state.json'
 DB=ROOT/'atlas.db'
-MODEL_VERSION='3.0-rc4-experimental'
+MODEL_VERSION='3.0-rc5-experimental'
 
 @contextmanager
 def database():
@@ -312,27 +312,56 @@ SHORT_GROUPS={
          'Inflação implícita':[('T5YIE',1),('T10YIE',1)]},
 }
 
-def short_metric(sid,direction,horizon,now=None):
+# RC5: compara APENAS janelas com as mesmas datas em todos os drivers.
+# Ausência de data comum significa ausência de leitura, nunca interpolação.
+SHORT_SERIES=tuple(dict.fromkeys(sid for groups in SHORT_GROUPS.values() for metrics in groups.values() for sid,_ in metrics))
+
+def short_common_window(horizon,now=None):
  now=now or datetime.now(timezone.utc)
+ calendars=[]
+ for sid in SHORT_SERIES:
+  observations=observation(sid,now)
+  if not observations:
+   continue
+  try:
+   days={datetime.fromisoformat(r['date']).date() for r in observations if isfinite(float(r['value']))}
+  except (ValueError,TypeError,KeyError,OverflowError):
+   return {'reason':'observações inválidas ('+sid+')', 'missing_series':sid}
+  calendars.append(days)
+ if not calendars:
+  return {'reason':'sem sincronização: nenhuma série disponível'}
+ common=sorted(set.intersection(*calendars),reverse=True)
+ steps=1 if horizon=='1d' else 5
+ if len(common)<=steps:
+  return {'reason':'sem janela comum: faltam datas compartilhadas para '+str(steps)+' intervalos'}
+ end=common[0]; start=common[steps]
+ if (now.date()-end).days>4:
+  return {'reason':'janela comum defasada: última data '+end.isoformat(),'to_date':end.isoformat()}
+ gap=(end-start).days
+ if gap<steps or gap>(5 if horizon=='1d' else 14):
+  return {'reason':'intervalo comum inconsistente: '+str(gap)+' dias'}
+ return {'from_date':start.isoformat(),'to_date':end.isoformat(),
+         'reason':'janela sincronizada (não é cotação ao vivo)',
+         'common_dates':len(common)}
+
+def short_metric(sid,direction,horizon,now=None,window=None):
+ now=now or datetime.now(timezone.utc)
+ window=window if window is not None else short_common_window(horizon,now)
+ if 'from_date' not in window or 'to_date' not in window:
+  return {'series_id':sid,'score':None,'reason':window.get('reason','sem janela comum')}
  observations=observation(sid,now)
- if not observations:return {'series_id':sid,'score':None,'reason':'série indisponível ou coleta vencida'}
+ if not observations:
+  return {'series_id':sid,'score':None,'reason':'série indisponível ou coleta vencida'}
  try:
-  latest=datetime.fromisoformat(observations[0]['date']).date()
-  if (now.date()-latest).days>4:
-   return {'series_id':sid,'score':None,'reason':'observação diária antiga'}
-  # D+1: comparação com a sessão anterior. D+5: cinco intervalos de observação.
-  steps=1 if horizon=='1d' else 5
-  if len(observations)<=steps:return {'series_id':sid,'score':None,'reason':'histórico diário insuficiente'}
-  previous=datetime.fromisoformat(observations[steps]['date']).date()
-  gap=(latest-previous).days
-  if gap<steps or gap>(5 if horizon=='1d' else 14):
-   return {'series_id':sid,'score':None,'reason':'intervalo de observações inconsistente'}
-  delta=float(observations[0]['value'])-float(observations[steps]['value'])
-  # Escala heurística, NÃO calibrada. 10bp (dia) ou 25bp (semana) => 50 pontos.
+  by_day={r['date']:float(r['value']) for r in observations}
+  start,end=window['from_date'],window['to_date']
+  if start not in by_day or end not in by_day:
+   return {'series_id':sid,'score':None,'reason':'datas comuns não encontradas na série'}
+  delta=by_day[end]-by_day[start]
   scale=.10 if horizon=='1d' else .25
   return {'series_id':sid,'score':score(direction*delta,scale),
-          'delta_pp':round(delta,5),'from_date':previous.isoformat(),
-          'to_date':latest.isoformat(),'reason':'observado (não é cotação ao vivo)'}
+          'delta_pp':round(delta,5),'from_date':start,'to_date':end,
+          'reason':'janela sincronizada (não é cotação ao vivo)'}
  except (ValueError,TypeError,KeyError,OverflowError):
   return {'series_id':sid,'score':None,'reason':'observações inválidas'}
 
@@ -341,10 +370,11 @@ def short_term_model(now=None):
  result={}
  for horizon in ('1d','5d'):
   result[horizon]={}
+  window=short_common_window(horizon,now)
   for asset,groups in SHORT_GROUPS.items():
    group_results={};coverage=0;weighted=0
    for name,metrics in groups.items():
-    rows=[short_metric(sid,direction,horizon,now) for sid,direction in metrics]
+    rows=[short_metric(sid,direction,horizon,now,window) for sid,direction in metrics]
     values=[r['score'] for r in rows if r['score'] is not None]
     value=round(sum(values)/len(values)) if len(values)==len(metrics) else None
     group_results[name]={'score':value,'metrics':rows}
@@ -355,13 +385,23 @@ def short_term_model(now=None):
     'score':total,'bias':('DADOS INSUFICIENTES' if total is None else
                        'ALTISTA' if total>=20 else 'BAIXISTA' if total<=-20 else 'NEUTRO'),
     'coverage':coverage,'groups':group_results,'horizon':horizon,
-    'assessment':'EXPERIMENTAL — não validado estatisticamente',
-    'note':'Mudanças de juros observadas no FRED; não representa preços intradiários, consenso, probabilidade ou previsão validada.'}
+    'window':window,'assessment':'EXPERIMENTAL — não validado estatisticamente',
+    'note':'Datas sincronizadas entre os seis drivers. Juros nominais, reais e inflação implícita não são independentes; pesos heurísticos.'}
+ structural=calc()
+ for horizon in ('1d','5d'):
+  for asset in ('USD','GOLD'):
+   recent=result[horizon][asset]['score'];base=structural[asset]['score']
+   divergent=(recent is not None and base is not None and recent*base<0)
+   result[horizon][asset]['structural_divergence']=(
+    'DIVERGÊNCIA: curto prazo e estrutural em sentidos opostos' if divergent else
+    'SEM COMPARAÇÃO: uma das pontuações indisponível' if recent is None or base is None else
+    'SEM OPOSIÇÃO DE SINAL: não implica concordância forte')
  return {'horizons':result,'source':'FRED (observações diárias)',
          'updated_at':now.isoformat(),
-         'limitations':['Sem dados intradiários: a leitura de 1 dia usa as últimas duas observações disponíveis.',
-                        'O horizonte de 5 dias usa cinco intervalos de observações, não uma previsão para os próximos cinco dias.',
-                        'Juros nominais, reais e inflação implícita podem estar correlacionados; pesos e limites são heurísticos.',
+         'limitations':['RC5: comparação feita nas mesmas datas para os seis drivers; janela sem sincronização bloqueia a pontuação.',
+                        'A leitura de 1 dia usa um intervalo comum entre observações, não preços intradiários.',
+                        'O horizonte de 5 dias usa cinco intervalos comuns, não uma previsão para os próximos cinco dias.',
+                        'Juros nominais, reais e inflação implícita são correlacionados: risco de dupla contagem permanece; pesos não recalibrados.',
                         'Dados FRED podem sofrer revisão. Não usar como gatilho de operação.']}
 
 def audit_detail():
