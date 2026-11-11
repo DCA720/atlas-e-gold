@@ -3,11 +3,12 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
+import pg_signals
 
 ROOT=Path(__file__).resolve().parent
 STATE=ROOT/'state.json'
 DB=ROOT/'atlas.db'
-MODEL_VERSION='3.0-rc6-experimental'
+MODEL_VERSION='3.0-rc7-experimental'
 
 @contextmanager
 def database():
@@ -40,6 +41,26 @@ def load():
  try:return json.loads(STATE.read_text('utf-8'))
  except (OSError,ValueError):return json.loads(json.dumps(DEFAULT))
 state=load()
+pg_status={'configured':pg_signals.configured(),'connected':False,'last_success':None,'error_type':None,'synced_count':0}
+
+def sync_pg_signals():
+ """Retryable remote persistence, never marks an uncommitted write successful."""
+ if not pg_signals.configured():return
+ try:
+  remote=pg_signals.pull()
+  with lock:
+   local=list(state.get('short_signal_history',[]))
+   combined=pg_signals.merge(local,remote)
+  pg_signals.push(combined)
+  with lock:
+   state['short_signal_history']=combined
+   save()
+  pg_status.update(connected=True,last_success=datetime.now(timezone.utc).isoformat(),
+                   error_type=None,synced_count=len(combined))
+ except Exception as exc:
+  pg_status.update(connected=False,error_type=type(exc).__name__)
+  print('Atlas PostgreSQL sync failed:',type(exc).__name__,flush=True)
+
 # O processo anterior pode ter terminado durante uma coleta; o estado persistido
 # não pode deixar o painel eternamente em "consultando" após reiniciar.
 if state.get('refresh_in_progress'):
@@ -167,6 +188,7 @@ def _refresh_inner():
 
 def worker():
  next_refresh=0
+ next_pg_sync=0
  while True:
   try:
    if time.monotonic()>=next_refresh:
@@ -175,6 +197,9 @@ def worker():
     refresh()
    with lock:
     snapshot(reason='time_recalculation')
+   if time.monotonic()>=next_pg_sync:
+    next_pg_sync=time.monotonic()+60
+    sync_pg_signals()
   except Exception as exc:
    # Falha pontual de cálculo ou disco não deve matar o monitor para sempre.
    print('Atlas worker error:',type(exc).__name__,str(exc)[:250],flush=True)
@@ -691,13 +716,13 @@ class Handler(BaseHTTPRequestHandler):
      integrity=conn.execute('PRAGMA quick_check').fetchone()[0]
      stored=conn.execute('SELECT COUNT(*) FROM state').fetchone()[0]
     with lock:
-     result={'version':MODEL_VERSION,'database_integrity':integrity,'state_rows':stored,'refresh_in_progress':bool(state.get('refresh_in_progress')),'last_success':state.get('last_success'),'last_result':state.get('last_result'),'series_count':len(state.get('series',{}))}
+     result={'version':MODEL_VERSION,'database_integrity':integrity,'state_rows':stored,'refresh_in_progress':bool(state.get('refresh_in_progress')),'last_success':state.get('last_success'),'last_result':state.get('last_result'),'series_count':len(state.get('series',{})),'postgresql':dict(pg_status)}
     self.respond(200 if integrity=='ok' else 503,result)
    except (sqlite3.Error,OSError) as exc:
     self.respond(503,{'version':MODEL_VERSION,'database_integrity':'error','detail':type(exc).__name__})
    return
   if urllib.parse.urlsplit(self.path).path=='/api/short-signals':
-   with lock:self.respond(200,{'version':MODEL_VERSION,'count':len(state.get('short_signal_history',[])),
+   with lock:self.respond(200,{'version':MODEL_VERSION,'postgresql':dict(pg_status),'count':len(state.get('short_signal_history',[])),
     'signals':state.get('short_signal_history',[]),
     'note':'Snapshots prospectivos; o horário do sinal é a hora real de registro, não a data da observação FRED. Ainda faltam preços externos para validação.'});return
   if urllib.parse.urlsplit(self.path).path=='/api/status':
