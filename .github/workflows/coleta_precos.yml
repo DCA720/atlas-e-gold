@@ -1,0 +1,36 @@
+
+name: Atlas RC8 - Coleta de Precos
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '15 * * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: atlas-coleta-precos
+  cancel-in-progress: false
+
+jobs:
+  coletar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Baixar repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Instalar dependencias
+        run: python -m pip install "psycopg[binary]"
+
+      - name: Coletar e gravar precos
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: python backend/market_prices.py
