@@ -27,4 +27,4 @@ jobs:
       - name: Executar validacao
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: python backend/validate_postgres.py
+       run: python backend/validate_postgres.py --save
