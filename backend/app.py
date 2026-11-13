@@ -651,15 +651,24 @@ def snapshot(reason='manual_event',economic_events=None):
  # Registro prospectivo do sinal de curto prazo: usa o horário real da leitura,
  # nunca retrodata o sinal para a data econômica da observação.
  short_history=state.setdefault('short_signal_history',[])
- existing={(r['asset'],r['horizon'],r.get('window_end'),r.get('model_version')) for r in short_history}
+ # RC13: uma observação prospectiva por dia UTC, ativo e horizonte.
+ # Registros anteriores também contam para impedir duplicação no dia da migração.
+ def signal_day(record):
+  try:
+   return datetime.fromisoformat(record['signal_time_utc'].replace('Z','+00:00')).astimezone(timezone.utc).date().isoformat()
+  except (KeyError,ValueError,TypeError):
+   return None
+ today=now.date().isoformat()
+ existing={(r.get('asset'),r.get('horizon'),signal_day(r),r.get('model_version')) for r in short_history}
  for horizon,assets in short_term_model(now)['horizons'].items():
   for asset,item in assets.items():
    window_end=item.get('window',{}).get('to_date')
-   identity=(asset,horizon,window_end,MODEL_VERSION)
+   identity=(asset,horizon,today,MODEL_VERSION)
    if item.get('score') is not None and window_end and identity not in existing:
     short_history.append({'signal_time_utc':now.isoformat(),'asset':asset,'horizon':horizon,
-     'score':item['score'],'coverage':item['coverage'],'window_end':window_end,
-     'model_version':MODEL_VERSION,'record_type':'prospective_observation'})
+     'score':item['score'],'bias':item['bias'],'coverage':item['coverage'],
+     'window_end':window_end,'model_version':MODEL_VERSION,
+     'record_type':'prospective_daily_observation_rc13'})
     existing.add(identity)
  history=state.setdefault('history',[])
  previous=history[-1].get('scores',{}) if history else {}
