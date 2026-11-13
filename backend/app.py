@@ -832,7 +832,10 @@ class Handler(BaseHTTPRequestHandler):
        previous[asset]=val
     self.respond(200,{'per_asset':{asset:per_asset.get(asset,[]) for asset in ('USD','GOLD')}})
    return
-  self.respond(404,{'error':'Não encontrado'})
+  self.respond(404,{
+    'error': 'Rota não encontrada - Atlas RC10',
+    'path': self.path
+})
  def do_POST(self):
   try:
    length=int(self.headers.get('Content-Length','0'))
