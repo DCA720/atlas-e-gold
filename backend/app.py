@@ -704,12 +704,65 @@ def snapshot(reason='manual_event',economic_events=None):
  save()
  return scores
 
+
+# RC10: leituras PostgreSQL para a visualizacao, sem expor credenciais.
+def rc10_read_prices(hours=2160):
+ if not pg_signals.configured():return {'available':False,'reason':'DATABASE_URL nao configurada','series':{'USD':[],'GOLD':[]}}
+ import psycopg
+ from datetime import timedelta
+ since=datetime.now(timezone.utc)-timedelta(hours=hours)
+ with psycopg.connect(os.environ['DATABASE_URL'],connect_timeout=8,sslmode='require') as conn:
+  with conn.cursor() as cur:
+   cur.execute("""SELECT symbol,price_time,price FROM public.atlas_market_prices
+    WHERE symbol IN ('DX-Y.NYB','GC=F') AND source='yahoo_chart_unofficial_1h'
+      AND price_time >= %s AND price_time <= %s
+    ORDER BY price_time ASC LIMIT 12000""",(since,datetime.now(timezone.utc)))
+   rows=cur.fetchall()
+ result={'USD':[],'GOLD':[]}
+ for symbol,dt,price in rows:
+  asset='USD' if symbol=='DX-Y.NYB' else 'GOLD'
+  result[asset].append({'timestamp':dt.astimezone(timezone.utc).isoformat(),'price':float(price)})
+ return {'available':True,'source':'yahoo_chart_unofficial_1h','symbols':{'USD':'DX-Y.NYB','GOLD':'GC=F'},'series':result,'note':'Precos horarios; DXY proxy e ouro futuro, nao spot. Historico importado nao prova acerto prospectivo.'}
+
+def rc10_read_validations():
+ if not pg_signals.configured():return {'available':False,'reason':'DATABASE_URL nao configurada','groups':[]}
+ import psycopg
+ with psycopg.connect(os.environ['DATABASE_URL'],connect_timeout=8,sslmode='require') as conn:
+  with conn.cursor() as cur:
+   cur.execute("""SELECT DISTINCT ON (asset,horizon) asset,horizon,methodology_version,
+    sample_size,hit_rate,average_return,evaluated_at,metrics
+    FROM public.atlas_validations WHERE asset IN ('USD','GOLD') AND horizon IN (1,5)
+    ORDER BY asset,horizon,evaluated_at DESC""")
+   rows=cur.fetchall()
+ groups=[]
+ for asset,horizon,version,n,hit,ret,dt,metrics in rows:
+  if isinstance(metrics,str):metrics=json.loads(metrics)
+  minimum=int((metrics or {}).get('minimum_sample',30))
+  sufficient=bool((metrics or {}).get('sufficient',False)) and n>=minimum
+  groups.append({'asset':asset,'horizon':horizon,'methodology_version':version,
+   'sample_size':n,'minimum_sample':minimum,'sufficient':sufficient,
+   'hit_rate':float(hit) if sufficient and hit is not None else None,
+   'average_return':float(ret) if sufficient and ret is not None else None,
+   'evaluated_at':dt.astimezone(timezone.utc).isoformat()})
+ return {'available':True,'groups':groups,'note':'Taxas ocultadas quando a amostra e insuficiente; retorno bruto, nao retorno liquido.'}
+
 class Handler(BaseHTTPRequestHandler):
  def respond(self,code,obj):
   data=json.dumps(obj,ensure_ascii=False).encode('utf-8');self.send_response(code);self.send_header('Content-Type','application/json; charset=utf-8');self.send_header('Cache-Control','no-store');self.send_header('Content-Length',str(len(data)));self.end_headers();self.wfile.write(data)
  def do_GET(self):
   if urllib.parse.urlsplit(self.path).path=='/':
    data=(ROOT/'index.html').read_bytes() if (ROOT/'index.html').exists() else b'Atlas API online. Use /api/health';self.send_response(200);self.send_header('Content-Type','text/html; charset=utf-8');self.send_header('Content-Length',str(len(data)));self.end_headers();self.wfile.write(data);return
+   if urllib.parse.urlsplit(self.path).path=='/api/market-prices':
+    try:
+     params=urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+     hours=max(24,min(2160,int(params.get('hours',['2160'])[0])))
+     self.respond(200,rc10_read_prices(hours))
+    except Exception as exc:self.respond(503,{'available':False,'reason':'Consulta indisponivel: '+type(exc).__name__})
+    return
+   if urllib.parse.urlsplit(self.path).path=='/api/validations':
+    try:self.respond(200,rc10_read_validations())
+    except Exception as exc:self.respond(503,{'available':False,'reason':'Consulta indisponivel: '+type(exc).__name__})
+    return
   if urllib.parse.urlsplit(self.path).path=='/api/health':
    try:
     with database() as conn:
