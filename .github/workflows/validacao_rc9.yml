@@ -1,0 +1,30 @@
+
+name: Atlas RC9 - Validacao PostgreSQL
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Baixar repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Instalar dependencias
+        run: python -m pip install "psycopg[binary]"
+
+      - name: Executar validacao
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: python backend/validate_postgres.py
