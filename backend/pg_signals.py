@@ -58,16 +58,16 @@ def pull(limit=5000):
         return []
     with _connect() as conn:
         with conn.cursor() as cur:
-            cur.execute('''SELECT asset,horizon,score,coverage,drivers,methodology_version,observed_at
+            cur.execute('''SELECT asset,horizon,score,bias,coverage,drivers,methodology_version,observed_at
                            FROM atlas_signals ORDER BY observed_at DESC LIMIT %s''', (limit,))
             rows = cur.fetchall()
     signals = []
-    for asset,horizon,score,coverage,drivers,version,observed in reversed(rows):
+    for asset,horizon,score,bias,coverage,drivers,version,observed in reversed(rows):
         if isinstance(drivers, str):
             drivers = json.loads(drivers)
         signals.append({'signal_time_utc': observed.astimezone(timezone.utc).isoformat(),
                         'asset': asset, 'horizon': '1d' if horizon == 1 else '5d',
-                        'score': float(score), 'coverage': float(coverage) if coverage is not None else None,
+                        'score': float(score), 'bias': bias, 'coverage': float(coverage) if coverage is not None else None,
                         'window_end': drivers.get('window_end'),
                         'model_version': version,
                         'record_type': drivers.get('record_type', 'prospective_observation')})
@@ -75,9 +75,25 @@ def pull(limit=5000):
 
 
 def merge(local, remote):
-    """Preserve earliest recorded signal for each economic window and methodology."""
-    by_window = {}
-    for r in sorted([*remote, *local], key=lambda x: x['signal_time_utc']):
-        key = (r['asset'], r['horizon'], r.get('window_end'), r['model_version'])
-        by_window.setdefault(key, r)
-    return sorted(by_window.values(), key=lambda x: x['signal_time_utc'])
+    """RC13: preserve legacy records; deduplicate daily observations by UTC date.
+
+    A prior legacy signal on the same UTC day takes precedence over a new
+    daily observation, preventing accidental duplication during migration.
+    """
+    ordered = sorted([*remote, *local], key=lambda x: x['signal_time_utc'])
+    by_key = {}
+    occupied_days = set()
+    for r in ordered:
+        day = datetime.fromisoformat(r['signal_time_utc'].replace('Z', '+00:00')).astimezone(timezone.utc).date().isoformat()
+        daily_key = (r['asset'], r['horizon'], r['model_version'], day)
+        if r.get('record_type') == 'prospective_daily_observation_rc13':
+            key = ('daily', *daily_key)
+            if daily_key in occupied_days:
+                continue
+        else:
+            key = ('legacy', r['asset'], r['horizon'], r.get('window_end'), r['model_version'])
+        if key in by_key:
+            continue
+        by_key[key] = r
+        occupied_days.add(daily_key)
+    return sorted(by_key.values(), key=lambda x: x['signal_time_utc'])
