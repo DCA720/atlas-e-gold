@@ -765,13 +765,6 @@ class Handler(BaseHTTPRequestHandler):
             return
   if urllib.parse.urlsplit(self.path).path=='/':
    data=(ROOT/'index.html').read_bytes() if (ROOT/'index.html').exists() else b'Atlas API online. Use /api/health';self.send_response(200);self.send_header('Content-Type','text/html; charset=utf-8');self.send_header('Content-Length',str(len(data)));self.end_headers();self.wfile.write(data);return
-   if urllib.parse.urlsplit(self.path).path=='/api/market-prices':
-    try:
-     params=urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
-     hours=max(24,min(2160,int(params.get('hours',['2160'])[0])))
-     self.respond(200,rc10_read_prices(hours))
-    except Exception as exc:self.respond(503,{'available':False,'reason':'Consulta indisponivel: '+type(exc).__name__})
-    return
    if urllib.parse.urlsplit(self.path).path=='/api/validations':
     try:self.respond(200,rc10_read_validations())
     except Exception as exc:self.respond(503,{'available':False,'reason':'Consulta indisponivel: '+type(exc).__name__})
