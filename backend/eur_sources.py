@@ -1,111 +1,46 @@
-"""Atlas EUR — coleta experimental Eurostat, isolada do Atlas em produção.
+"""Atlas EUR - coleta experimental isolada de câmbio de referência do BCE.
 
-Não gera sinais, não grava em bancos e não altera USD/GOLD.
-Requer Python 3.11+; sem dependências externas.
+Não gera score, não altera USD/GOLD e não grava no PostgreSQL.
+Fonte: BCE EXR, taxa de referência EUR/USD (USD por EUR), frequência diária.
 """
+import csv
+import io
 import json
-import math
-import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
-BASE = 'https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/data/'
-SERIES = {
-    'hicp_yoy': {
-        'dataset': 'prc_hicp_manr',
-        'filters': {'geo': 'EA20', 'coicop': 'CP00'},
-        'description': 'Inflação harmonizada anual, índice geral, área do euro (EA20)',
-        'unit': '% ao ano',
-    },
-    'unemployment': {
-        'dataset': 'une_rt_m',
-        'filters': {'geo': 'EA20', 's_adj': 'SA', 'age': 'TOTAL', 'sex': 'T', 'unit': 'PC_ACT'},
-        'description': 'Taxa de desemprego mensal dessazonalizada, área do euro (EA20)',
-        'unit': '% da população ativa',
-    },
-}
+ECB_URL = ('https://data-api.ecb.europa.eu/service/data/EXR/'
+           'D.USD.EUR.SP00.A?format=csvdata&lastNObservations=40')
 
 
-def _get_json(url, timeout=25):
-    request = urllib.request.Request(url, headers={'User-Agent': 'AtlasMacro-EUR/0.2', 'Accept': 'application/json'})
+def collect_eurusd(timeout=20):
+    request = urllib.request.Request(ECB_URL, headers={'User-Agent': 'AtlasMacro-EUR/0.1', 'Accept': 'text/csv'})
     with urllib.request.urlopen(request, timeout=timeout) as response:
-        content = response.read(5_000_001)
-    if len(content) > 5_000_000:
-        raise ValueError('Resposta Eurostat excedeu 5 MB')
-    return json.loads(content.decode('utf-8-sig'))
-
-
-def _extract_series(data):
-    """Lê observações de uma série filtrada em formato JSON-stat 2.0.
-
-    Recusa respostas com dimensões não temporais contendo mais de uma categoria:
-    nunca mistura países, faixas etárias ou séries diferentes silenciosamente.
-    """
-    ids = data['id']
-    sizes = data['size']
-    dimensions = data['dimension']
-    if len(ids) != len(sizes) or 'time' not in ids:
-        raise ValueError('Dimensões Eurostat inesperadas')
-    for dim, size in zip(ids, sizes):
-        if dim != 'time' and size != 1:
-            raise ValueError(f'Filtro insuficiente: dimensão {dim} possui {size} categorias')
-    time_dim = dimensions['time']['category']['index']
-    if isinstance(time_dim, list):
-        time_index = {key: i for i, key in enumerate(time_dim)}
-    else:
-        time_index = time_dim
-    time_pos = ids.index('time')
-    stride = math.prod(sizes[time_pos + 1:])
-    values = data.get('value', {})
-    rows = []
-    for date, idx in time_index.items():
-        flat_index = idx * stride
-        value = values.get(str(flat_index)) if isinstance(values, dict) else (values[flat_index] if flat_index < len(values) else None)
-        if value is None:
-            continue
+        content = response.read(1_500_001)
+    if len(content) > 1_500_000:
+        raise ValueError('Resposta do BCE excede o limite de 1,5 MB')
+    reader = csv.DictReader(io.StringIO(content.decode('utf-8-sig')))
+    if not reader.fieldnames or not {'TIME_PERIOD', 'OBS_VALUE'}.issubset(reader.fieldnames):
+        raise ValueError('Formato CSV inesperado do BCE')
+    observations = {}
+    for row in reader:
         try:
-            value = float(value)
-        except (TypeError, ValueError):
+            date = datetime.strptime(row['TIME_PERIOD'], '%Y-%m-%d').date()
+            price = float(row['OBS_VALUE'])
+            if price > 0 and price < 100 and date <= datetime.now(timezone.utc).date():
+                observations[date.isoformat()] = price
+        except (ValueError, TypeError, KeyError):
             continue
-        if math.isfinite(value):
-            rows.append({'date': date, 'value': value})
-    rows.sort(key=lambda x: x['date'], reverse=True)
-    if len(rows) < 2:
-        raise ValueError('Menos de duas observações válidas')
-    return rows[:36]
-
-
-def collect_eurostat(name, timeout=25):
-    spec = SERIES[name]
-    params = {**spec['filters'], 'lang': 'EN', 'lastTimePeriod': 36}
-    url = BASE + spec['dataset'] + '?' + urllib.parse.urlencode(params)
-    data = _get_json(url, timeout=timeout)
-    rows = _extract_series(data)
-    return {
-        'indicator': name, 'asset': 'EUR', 'source': 'Eurostat',
-        'dataset': spec['dataset'], 'filters': spec['filters'],
-        'description': spec['description'], 'unit': spec['unit'],
-        'collected_at_utc': datetime.now(timezone.utc).isoformat(),
-        'latest': rows[0], 'previous': rows[1], 'recent': rows,
-        'score': None, 'status': 'observações coletadas; sem pontuação direcional',
-        'note': 'Data de referência estatística não é horário de divulgação; dados sujeitos a revisões.'
-    }
-
-
-def collect_eur_macro(timeout=25):
-    result = {'asset': 'EUR', 'collected_at_utc': datetime.now(timezone.utc).isoformat(),
-              'indicators': {}, 'errors': {}, 'score': None,
-              'status': 'coleta experimental; sem viés macro calculado'}
-    for name in SERIES:
-        try:
-            result['indicators'][name] = collect_eurostat(name, timeout)
-        except (KeyError, ValueError, TypeError, OSError, TimeoutError, json.JSONDecodeError) as exc:
-            result['errors'][name] = f'{type(exc).__name__}: {str(exc)[:200]}'
-        except Exception as exc:
-            # Falha isolada por indicador, sem impedir o diagnóstico do restante.
-            result['errors'][name] = f'{type(exc).__name__}: {str(exc)[:200]}'
-    return result
+    recent = [{'date': date, 'value': observations[date]} for date in sorted(observations, reverse=True)]
+    if len(recent) < 2:
+        raise ValueError('Histórico EUR/USD insuficiente')
+    return {'asset': 'EUR', 'pair': 'EUR/USD', 'source': 'ECB EXR reference rate',
+            'unit': 'USD por 1 EUR', 'frequency': 'daily',
+            'collected_at_utc': datetime.now(timezone.utc).isoformat(),
+            'latest': recent[0], 'previous': recent[1], 'recent': recent,
+            'score': None, 'status': 'coleta de referência; sem viés macro calculado',
+            'note': 'Cotação de referência diária, não feed intradiário nem preço de execução.'}
 
 
 if __name__ == '__main__':
-    print(json.dumps(collect_eur_macro(), ensure_ascii=False, indent=2))
+    print(json.dumps(collect_eurusd(), ensure_ascii=False, indent=2))
