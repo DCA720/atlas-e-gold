@@ -1,0 +1,20 @@
+name: Atlas EUR - Diagnostico macro experimental
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  testar-eur:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verificar sintaxe
+        run: python -m py_compile backend/eur_rates.py backend/eur_macro_sources.py backend/eur_score.py
+      - name: Consultar fontes e emitir diagnostico EUR
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        run: python backend/eur_score.py
