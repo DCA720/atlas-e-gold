@@ -19,8 +19,8 @@ SERIES = {
     },
     'unemployment': {
         'dataset': 'une_rt_m',
-        'filters': {'geo': 'EA20', 's_adj': 'SA', 'age': 'TOTAL', 'sex': 'T', 'unit': 'PC_ACT'},
-        'description': 'Taxa de desemprego mensal dessazonalizada, área do euro (EA20)',
+        'filters': {'geo': 'EA20', 's_adj': 'SA', 'age': 'Y15-74', 'sex': 'T', 'unit': 'PC_ACT'},
+        'description': 'Taxa de desemprego mensal dessazonalizada, 15 a 74 anos, área do euro (EA20)',
         'unit': '% da população ativa',
     },
 }
@@ -47,6 +47,8 @@ def _extract_series(data):
     if len(ids) != len(sizes) or 'time' not in ids:
         raise ValueError('Dimensões Eurostat inesperadas')
     for dim, size in zip(ids, sizes):
+        if dim != 'time' and size == 0:
+            raise ValueError(f'Série não encontrada: dimensão {dim} sem categorias; confira filtros e disponibilidade no Eurostat')
         if dim != 'time' and size != 1:
             raise ValueError(f'Filtro insuficiente: dimensão {dim} possui {size} categorias')
     time_dim = dimensions['time']['category']['index']
