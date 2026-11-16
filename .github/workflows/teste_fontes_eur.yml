@@ -1,0 +1,56 @@
+name: Atlas EUR - Teste das fontes oficiais
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  testar-fontes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Baixar repositorio
+        uses: actions/checkout@v4
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verificar sintaxe
+        run: python -m py_compile backend/eur_sources.py backend/eur_macro_sources.py
+      - name: Consultar BCE e Eurostat
+        env:
+          PYTHONPATH: backend
+        run: |
+          python - <<'PY'
+          from eur_sources import collect_eurusd
+          from eur_macro_sources import collect_eur_macro
+
+          failed = []
+          try:
+              fx = collect_eurusd()
+              print('BCE EUR/USD:', fx['latest'], '| anterior:', fx['previous'])
+              if not fx.get('latest') or not fx.get('previous'):
+                  failed.append('BCE: observacoes insuficientes')
+          except Exception as exc:
+              failed.append(f'BCE: {type(exc).__name__}: {exc}')
+
+          try:
+              macro = collect_eur_macro()
+              for name, item in macro['indicators'].items():
+                  print('Eurostat', name, ':', item['latest'], '| anterior:', item['previous'])
+              for name, reason in macro['errors'].items():
+                  failed.append(f'Eurostat {name}: {reason}')
+              for name in ('hicp_yoy', 'unemployment'):
+                  if name not in macro['indicators'] and name not in macro['errors']:
+                      failed.append(f'Eurostat {name}: nao retornado')
+          except Exception as exc:
+              failed.append(f'Eurostat: {type(exc).__name__}: {exc}')
+
+          if failed:
+              for error in failed:
+                  print('FALHA:', error)
+              raise SystemExit(1)
+          print('SUCESSO: tres fontes consultadas; nenhum sinal ou banco alterado.')
+          PY
