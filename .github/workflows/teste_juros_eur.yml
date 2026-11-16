@@ -1,0 +1,35 @@
+name: Atlas EUR - Teste de juros BCE e Fed
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  testar-juros:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Baixar repositorio
+        uses: actions/checkout@v4
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verificar sintaxe
+        run: python -m py_compile backend/eur_rates.py
+      - name: Consultar BCE e opcionalmente Fed
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        run: |
+          python - <<'PY'
+          import sys
+          sys.path.insert(0, 'backend')
+          from eur_rates import collect_rate_differential
+          result = collect_rate_differential()
+          print('BCE:', result['ecb']['latest'] if result['ecb'] else result['errors'].get('ecb'))
+          print('Fed:', result['fed']['latest'] if result['fed'] else result['errors'].get('fed'))
+          print('Diferencial (p.p.):', result['differential_pp'])
+          if not result['ecb']:
+              raise SystemExit('Falha: consulta BCE não retornou taxa válida')
+          if result['errors'].get('fed'):
+              print('AVISO: Fed indisponível; configure FRED_API_KEY como segredo do repositório se necessário')
+          PY
