@@ -1,0 +1,20 @@
+name: Atlas EUR - Diagnostico HICP v2
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  diagnosticar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Baixar repositorio
+        uses: actions/checkout@v4
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verificar sintaxe
+        run: python -m py_compile backend/diagnose_hicp_v2.py
+      - name: Comparar series de inflacao HICP
+        run: python backend/diagnose_hicp_v2.py
