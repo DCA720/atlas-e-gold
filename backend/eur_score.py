@@ -58,16 +58,32 @@ def evaluate(macro, rates, today=None):
         except (ValueError, KeyError, TypeError) as exc:
             factors[key] = {'status': 'indisponível', 'reason': str(exc)}
 
-    factors['activity'] = {'status': 'não implementado', 'reason': 'fonte de atividade ainda não integrada'}
+    activity = (macro.get('indicators') or {}).get('activity')
+    if activity:
+        try:
+            latest, previous = activity['latest'], activity['previous']
+            def quarter_index(value):
+                year, quarter = value.split('-Q')
+                return int(year) * 4 + int(quarter)
+            if quarter_index(latest['date']) - quarter_index(previous['date']) != 1:
+                raise ValueError('trimestres não consecutivos')
+            factors['activity'] = {
+                'status': 'descritivo', 'value_pct': float(latest['value']),
+                'previous_pct': float(previous['value']), 'period': latest['date'],
+                'note': 'PIB real trimestral, não sinal diário.'}
+        except (ValueError, KeyError, TypeError) as exc:
+            factors['activity'] = {'status': 'indisponível', 'reason': str(exc)}
+    else:
+        factors['activity'] = {'status': 'indisponível', 'reason': errors.get('activity', 'sem dados')}
     available = sum(f['status'] == 'descritivo' for f in factors.values())
-    return {'asset': 'EUR', 'model_version': 'eur-diagnostic-0.1', 'asof_utc': datetime.now(timezone.utc).isoformat(),
+    return {'asset': 'EUR', 'model_version': 'eur-diagnostic-0.2', 'asof_utc': datetime.now(timezone.utc).isoformat(),
             'factors': factors, 'available_factors': available, 'total_factors': 4,
             'structural_score': None, 'horizons': {'1d': {'score': None}, '5d': {'score': None}},
             'status': 'diagnóstico experimental; pontuação suspensa até dados e metodologia suficientes',
             'errors': errors,
             'limitations': ['Não gera sinais nem grava no PostgreSQL.',
                             'Juros em nível e dados mensais não permitem inferir variação macro diária.',
-                            'A atividade econômica e a validação prospectiva ainda não foram implementadas.']}
+                            'A atividade econômica é trimestral; a validação prospectiva ainda não foi implementada.']}
 
 
 def main():
