@@ -1,0 +1,18 @@
+name: Atlas EUR - Diagnostico geo inflacao
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  diagnosticar-geo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Baixar repositorio
+        uses: actions/checkout@v4
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Consultar codigos geo HICP
+        run: python backend/diagnose_hicp_geo.py
