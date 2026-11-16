@@ -13,8 +13,8 @@ BASE = 'https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/data/'
 SERIES = {
     'hicp_yoy': {
         'dataset': 'prc_hicp_manr',
-        'filters': {'geo': 'EA20', 'coicop': 'CP00'},
-        'description': 'Inflação harmonizada anual, índice geral, área do euro (EA20)',
+        'filters': {'geo': 'EA21', 'coicop': 'CP00'},
+        'description': 'Inflação harmonizada anual, índice geral, área do euro (EA21)',
         'unit': '% ao ano',
     },
     'unemployment': {
@@ -22,6 +22,12 @@ SERIES = {
         'filters': {'geo': 'EA21', 's_adj': 'SA', 'age': 'TOTAL', 'sex': 'T', 'unit': 'PC_ACT'},
         'description': 'Taxa de desemprego mensal dessazonalizada, idade total, área do euro (EA21)',
         'unit': '% da população ativa',
+    },
+    'activity': {
+        'dataset': 'namq_10_gdp',
+        'filters': {'geo': 'EA21', 'na_item': 'B1G', 's_adj': 'SCA', 'unit': 'CLV_PCH_PRE'},
+        'description': 'PIB real trimestral, variação percentual frente ao trimestre anterior, área do euro (EA21)',
+        'unit': '% trimestre contra trimestre',
     },
 }
 
@@ -46,6 +52,8 @@ def _extract_series(data):
     dimensions = data['dimension']
     if len(ids) != len(sizes) or 'time' not in ids:
         raise ValueError('Dimensões Eurostat inesperadas')
+    if any(size == 0 for size in sizes):
+        raise ValueError('Série sem categorias: ' + ', '.join(dim for dim, size in zip(ids, sizes) if size == 0))
     for dim, size in zip(ids, sizes):
         if dim != 'time' and size == 0:
             raise ValueError(f'Série não encontrada: dimensão {dim} sem categorias; confira filtros e disponibilidade no Eurostat')
@@ -83,6 +91,20 @@ def collect_eurostat(name, timeout=25):
     url = BASE + spec['dataset'] + '?' + urllib.parse.urlencode(params)
     data = _get_json(url, timeout=timeout)
     rows = _extract_series(data)
+    # Recusa séries antigas, inclusive quando o código geográfico foi descontinuado.
+    from datetime import date
+    today = datetime.now(timezone.utc).date()
+    period = rows[0]['date']
+    if name == 'activity':
+        year, quarter = int(period[:4]), int(period[-1])
+        age = (today.year - year) * 4 + (today.month - 1) // 3 + 1 - quarter
+        if not 0 <= age <= 3:
+            raise ValueError(f'Atividade desatualizada: última observação {period}')
+    else:
+        year, month = map(int, period.split('-'))
+        age = (today.year - year) * 12 + today.month - month
+        if not 0 <= age <= 4:
+            raise ValueError(f'Série {name} desatualizada: última observação {period}')
     return {
         'indicator': name, 'asset': 'EUR', 'source': 'Eurostat',
         'dataset': spec['dataset'], 'filters': spec['filters'],
