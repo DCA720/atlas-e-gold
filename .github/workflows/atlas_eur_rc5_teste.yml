@@ -1,0 +1,46 @@
+name: Atlas EUR RC5 - Qualidade macro relativa
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnostico-rc5:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verificar sintaxe
+        run: python -m py_compile backend/atlas_eur_rc5.py backend/eur_score_rc4.py
+      - name: Executar diagnostico
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        run: python backend/atlas_eur_rc5.py > eur_rc5_result.json
+      - name: Validar contrato sem sinais
+        run: |
+          python - <<'PYCODE'
+          import json
+          with open('eur_rc5_result.json', encoding='utf-8') as f:
+              data = json.load(f)
+          assert data['signals_generated'] is False
+          assert data['database_writes'] is False
+          assert data['relative_score'] is None
+          assert data['horizons']['1d']['score'] is None
+          assert data['horizons']['5d']['score'] is None
+          assert 0 <= data['coverage'] <= 1
+          print('Contrato RC5 validado. Cobertura:', data['coverage'])
+          PYCODE
+      - name: Anexar diagnostico
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eur-rc5-diagnostico
+          path: eur_rc5_result.json
+          if-no-files-found: warn
