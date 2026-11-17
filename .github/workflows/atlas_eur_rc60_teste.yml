@@ -1,0 +1,44 @@
+name: Atlas EUR RC6.0 - Auditoria CPI sazonalidade
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  auditoria-rc60:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verificar sintaxe
+        run: python -m py_compile backend/atlas_eur_rc57.py backend/atlas_eur_rc58.py backend/atlas_eur_rc60.py
+      - name: Executar auditoria
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        run: python backend/atlas_eur_rc60.py > eur_rc60_result.json
+      - name: Validar bloqueios e formato
+        run: |
+          python - <<'PYCODE'
+          import json
+          with open('eur_rc60_result.json', encoding='utf-8') as f:
+              d = json.load(f)
+          assert d['model_version'].startswith('eur-rc6.0')
+          assert set(d['us_series']) == {'CPIAUCSL', 'CPIAUCNS'}
+          assert d['relative_score'] is None and d['eligible_count'] == 0
+          assert d['signals_generated'] is False and d['database_writes'] is False
+          assert d['production_change_authorized'] is False
+          assert d['methodology']['vintage_verified'] is False
+          print('RC6.0: diagnostico validado; sinais bloqueados')
+          PYCODE
+      - name: Anexar diagnostico
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eur-rc60-diagnostico
+          path: eur_rc60_result.json
+          if-no-files-found: warn
