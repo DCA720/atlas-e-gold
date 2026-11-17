@@ -14,14 +14,14 @@ from eur_score import evaluate as evaluate_rc3
 from eur_macro_sources import collect_eur_macro
 from eur_rates import collect_rate_differential
 
-VERSION = 'eur-rc4-relative-diagnostic-experimental-0.4'
+VERSION = 'eur-rc4-relative-diagnostic-experimental-0.4.1'
 FRED_SERIES = {'cpi': 'CPIAUCSL', 'unemployment': 'UNRATE', 'gdp': 'GDPC1'}
 
 
 def fetch_fred(series_id, key):
     params = urllib.parse.urlencode({
         'series_id': series_id, 'api_key': key, 'file_type': 'json',
-        'sort_order': 'desc', 'limit': 24,
+        'sort_order': 'asc', 'observation_start': '2024-01-01',
     })
     req = urllib.request.Request(
         'https://api.stlouisfed.org/fred/series/observations?' + params,
@@ -39,7 +39,7 @@ def fetch_fred(series_id, key):
             continue
     if not result:
         raise ValueError('Nenhuma observação numérica válida')
-    return result
+    return sorted(result, key=lambda r: r['date'], reverse=True)
 
 
 def month_shift(iso_date, months):
@@ -50,7 +50,7 @@ def month_shift(iso_date, months):
 
 def us_inflation(rows):
     by_month = {row['date'][:7]: row['value'] for row in rows}
-    latest = rows[0]['date'][:7]
+    latest = max(by_month)
     previous_year = month_shift(latest, 12)
     if previous_year not in by_month or by_month[previous_year] <= 0:
         return {'status': 'indisponível', 'reason': 'Faltam 12 meses para calcular CPI anual'}
@@ -99,7 +99,7 @@ def compare(rc3, us):
     result['comparisons']['activity'] = {
         'status': 'descritivo' if factors.get('activity', {}).get('status') == 'descritivo' and us.get('gdp', {}).get('status') == 'descritivo' else 'indisponível',
         'eur': factors.get('activity', {}), 'us': us.get('gdp', {}),
-        'note': 'Não subtrair PIB europeu em taxa trimestral de PIB americano em nível.'}
+        'note': 'Comparação descritiva; crescimento trimestral EUA calculado sem anualização. Verificar definição da taxa europeia antes de subtrair.'}
     return result
 
 
@@ -122,8 +122,15 @@ def main():
                 us[name] = {'status': 'descritivo', 'value_pct': rows[0]['value'],
                             'period': rows[0]['date'][:7]}
             else:
-                us[name] = {'status': 'descritivo', 'latest_level': rows[0]['value'],
-                            'period': rows[0]['date'], 'unit': 'bilhões de dólares encadeados'}
+                if len(rows) < 2 or rows[1]['value'] <= 0:
+                    us[name] = {'status': 'indisponível', 'reason': 'Faltam dois trimestres consecutivos de PIB'}
+                else:
+                    us[name] = {'status': 'descritivo', 'latest_level': rows[0]['value'],
+                                'previous_level': rows[1]['value'],
+                                'qoq_pct': round(100 * (rows[0]['value'] / rows[1]['value'] - 1), 3),
+                                'period': rows[0]['date'], 'previous_period': rows[1]['date'],
+                                'unit': 'bilhões de dólares encadeados',
+                                'note': 'Variação trimestral não anualizada do PIB real GDPC1'}
         except Exception as exc:
             us['inflation' if name == 'cpi' else name] = {
                 'status': 'indisponível', 'reason': type(exc).__name__}
