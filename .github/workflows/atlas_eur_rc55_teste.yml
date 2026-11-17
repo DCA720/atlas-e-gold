@@ -1,0 +1,47 @@
+name: Atlas EUR RC5.5 - Normalizacao geografica
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnostico-rc55:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verificar arquivos e sintaxe
+        run: |
+          python -m py_compile backend/atlas_eur_rc55.py backend/atlas_eur_rc54.py backend/atlas_eur_rc53.py backend/atlas_eur_rc52.py backend/atlas_eur_rc51.py backend/atlas_eur_rc5.py backend/eur_score_rc4.py backend/eur_macro_sources.py
+      - name: Executar auditoria geografica
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        run: python backend/atlas_eur_rc55.py > eur_rc55_result.json
+      - name: Validar contrato conservador
+        run: |
+          python - <<'PYCODE'
+          import json
+          with open('eur_rc55_result.json', encoding='utf-8') as f:
+              d = json.load(f)
+          assert d['relative_score'] is None
+          assert d['eligible_count'] == 0
+          assert d['signals_generated'] is False
+          assert d['database_writes'] is False
+          assert d['source_code_modified'] is False
+          assert set(d['geography_audit']) == {'inflation', 'unemployment', 'activity'}
+          for factor in d['geography_audit'].values():
+              assert set(factor['by_geo']) == {'EA20', 'EA21'}
+          print('RC5.5: contrato conservador validado')
+          PYCODE
+      - name: Anexar diagnostico
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eur-rc55-diagnostico
+          path: eur_rc55_result.json
+          if-no-files-found: warn
