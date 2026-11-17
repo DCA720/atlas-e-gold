@@ -1,0 +1,64 @@
+name: Atlas EUR RC6.7 - Consolidacao historica inflacao
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  auditoria-rc67:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verificar sintaxe
+        run: python -m py_compile backend/atlas_eur_rc64.py backend/atlas_eur_rc65.py backend/atlas_eur_rc66.py backend/atlas_eur_rc67.py
+      - name: Testes isolados sem rede
+        run: |
+          PYTHONPATH=backend python - <<'PY'
+          from atlas_eur_rc67 import evaluate
+          def eu_mock(url):
+              if '02102026' in url: s='annual inflation up to 3.8%'
+              elif '16102026' in url: s='annual inflation rate was 3.8%'
+              else: s='annual inflation up to 4.0%'
+              return {'text': s, 'final_url': url}
+          def us_mock(date, key):
+              values={'2025-09':324.8,'2025-10':None,'2026-09':336.94,
+                      '2026-10':337.511 if date != '2026-10-14' else None}
+              return {'status':'ok','vintage_date':date,'index_levels':values}
+          d=evaluate(eu_fetcher=eu_mock, us_fetcher=us_mock, api_key='mock')
+          assert d['calendar_reconciliation']['official_full_release_date']=='2026-10-16'
+          assert d['eu_flash_full_comparison']['same_headline']
+          assert d['us_vintage_audit']['october_2025_base_missing']
+          assert d['us_vintage_audit']['revision_summary']['newly_present']==1
+          assert d['descriptive_september_comparison']['eu_minus_us_pp'] is not None
+          assert d['relative_score'] is None and d['eligible_count']==0
+          assert not d['signals_generated'] and not d['database_writes']
+          assert not d['quality_gates']['point_in_time_backtest_authorized']
+          print('Testes RC6.7 aprovados')
+          PY
+      - name: Consultar Eurostat e ALFRED
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        run: python backend/atlas_eur_rc67.py > eur_rc67_result.json
+      - name: Validar diagnostico
+        run: |
+          python - <<'PY'
+          import json
+          with open('eur_rc67_result.json',encoding='utf-8') as f: d=json.load(f)
+          assert d['relative_score'] is None and d['eligible_count']==0
+          assert not d['signals_generated'] and not d['database_writes']
+          assert not d['production_change_authorized']
+          print('Invariantes RC6.7 preservadas')
+          PY
+      - name: Anexar diagnostico
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eur-rc67-diagnostico
+          path: eur_rc67_result.json
+          if-no-files-found: warn
