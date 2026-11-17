@@ -14,7 +14,7 @@ from eur_score import evaluate as evaluate_rc3
 from eur_macro_sources import collect_eur_macro
 from eur_rates import collect_rate_differential
 
-VERSION = 'eur-rc4-relative-diagnostic-experimental-0.4.1'
+VERSION = 'eur-rc4-relative-diagnostic-experimental-0.4.2'
 FRED_SERIES = {'cpi': 'CPIAUCSL', 'unemployment': 'UNRATE', 'gdp': 'GDPC1'}
 
 
@@ -49,14 +49,46 @@ def month_shift(iso_date, months):
 
 
 def us_inflation(rows):
-    by_month = {row['date'][:7]: row['value'] for row in rows}
+    """Calcula inflação YoY somente com pares mensais efetivamente observados.
+
+    Se a última referência não possuir base de 12 meses, usa o último par
+    completo disponível e informa a defasagem; nunca interpola valores.
+    """
+    by_month = {row['date'][:7]: row['value'] for row in rows
+                if row.get('date') and isfinite(row['value']) and row['value'] > 0}
+    if not by_month:
+        return {'status': 'indisponível', 'reason': 'CPI sem observações positivas válidas'}
+
     latest = max(by_month)
-    previous_year = month_shift(latest, 12)
-    if previous_year not in by_month or by_month[previous_year] <= 0:
-        return {'status': 'indisponível', 'reason': 'Faltam 12 meses para calcular CPI anual'}
-    return {'status': 'descritivo', 'period': latest,
-            'value_pct': round(100 * (by_month[latest] / by_month[previous_year] - 1), 3),
-            'method': 'CPIAUCSL: variação de 12 meses, sem ajuste de surpresa'}
+    missing_pairs = []
+    for period in sorted(by_month, reverse=True):
+        base_period = month_shift(period, 12)
+        if base_period not in by_month:
+            missing_pairs.append({'period': period, 'missing_base': base_period})
+            continue
+        months_lag = ((int(latest[:4]) - int(period[:4])) * 12
+                      + int(latest[5:7]) - int(period[5:7]))
+        return {
+            'status': 'descritivo',
+            'period': period,
+            'reference_period': base_period,
+            'latest_observation_period': latest,
+            'months_lag': months_lag,
+            'stale': months_lag > 0,
+            'value_pct': round(100 * (by_month[period] / by_month[base_period] - 1), 3),
+            'method': 'CPIAUCSL: variação observada de 12 meses, sem interpolação',
+            'note': ('Última referência sem base anual: usada a observação anterior '
+                     'com comparação válida.' if months_lag else
+                     'Comparação de 12 meses disponível para a última referência.'),
+            'missing_recent_pairs': missing_pairs[:6],
+        }
+    return {
+        'status': 'indisponível',
+        'reason': 'Nenhum par mensal com 12 meses de intervalo disponível',
+        'latest_observation_period': latest,
+        'observations': len(by_month),
+        'missing_recent_pairs': missing_pairs[:6],
+    }
 
 
 def compare(rc3, us):
@@ -79,7 +111,9 @@ def compare(rc3, us):
             'us_cpi_yoy_pct': us_infl['value_pct'],
             'difference_pp': round(eu_inflation['value_pct'] - us_infl['value_pct'], 3),
             'eur_period': eu_inflation['period'], 'us_period': us_infl['period'],
-            'note': 'Diferencial entre índices distintos; não gera contribuição direcional.'}
+            'us_reference_period': us_infl.get('reference_period'),
+            'us_stale': us_infl.get('stale', False),
+            'note': 'Diferencial entre índices distintos e possivelmente períodos distintos; não gera contribuição direcional.'}
     else:
         result['comparisons']['inflation'] = {'status': 'indisponível', 'reason': 'HICP ou CPI não disponível'}
     eu_unemp = factors.get('unemployment', {})
