@@ -1,0 +1,63 @@
+name: Atlas EUR RC6.4 - Horarios HICP e vintages ALFRED
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  auditoria-rc64:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verificar sintaxe
+        run: python -m py_compile backend/atlas_eur_rc62.py backend/atlas_eur_rc63.py backend/atlas_eur_rc64.py
+      - name: Testar conversoes e bloqueios com dados sinteticos
+        run: |
+          PYTHONPATH=backend python - <<'PY'
+          from atlas_eur_rc64 import euro_schedule, evaluate
+          times = {r['reference_period']:r['scheduled_utc'] for r in euro_schedule()}
+          assert times == {'2026-09': '2026-10-15T09:00:00Z', '2026-10': '2026-11-17T10:00:00Z'}
+          def mock_fetch(date, key):
+              return {'status':'ok','vintage_date':date,'index_levels':{
+                  '2025-09':300.0,'2025-10':None,'2026-09':310.0,'2026-10':320.0}}
+          d=evaluate(fetcher=mock_fetch, api_key='mock')
+          assert d['period_audit'][0]['us_yoy_at_vintage_date'] == 3.33333333
+          assert d['period_audit'][1]['us_yoy_at_vintage_date'] is None
+          assert not d['historical_vintage_per_observation_verified']
+          assert not d['point_in_time_backtest_authorized']
+          assert d['eligible_count']==0 and d['relative_score'] is None
+          assert not d['signals_generated'] and not d['database_writes']
+          print('Testes sinteticos RC6.4 aprovados')
+          PY
+      - name: Executar diagnostico real
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        run: python backend/atlas_eur_rc64.py > eur_rc64_result.json
+      - name: Verificar invariantes
+        run: |
+          python - <<'PY'
+          import json
+          with open('eur_rc64_result.json',encoding='utf-8') as f: d=json.load(f)
+          assert d['model_version'].startswith('eur-rc6.4')
+          assert len(d['eu_scheduled_releases'])==2
+          assert d['eu_actual_release_time_per_observation_verified'] is False
+          assert d['historical_vintage_per_observation_verified'] is False
+          assert d['point_in_time_backtest_authorized'] is False
+          assert d['eligible_count']==0 and d['relative_score'] is None
+          assert d['signals_generated'] is False and d['database_writes'] is False
+          assert d['production_change_authorized'] is False
+          print('Invariantes RC6.4 preservadas')
+          PY
+      - name: Anexar diagnostico
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eur-rc64-diagnostico
+          path: eur_rc64_result.json
+          if-no-files-found: warn
