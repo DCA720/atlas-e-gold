@@ -1,0 +1,46 @@
+name: Atlas EUR RC6.1 - Metodologia e integridade temporal
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  auditoria-rc61:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verificar sintaxe
+        run: python -m py_compile backend/atlas_eur_rc57.py backend/atlas_eur_rc58.py backend/atlas_eur_rc60.py backend/atlas_eur_rc61.py
+      - name: Executar auditoria
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        run: python backend/atlas_eur_rc61.py > eur_rc61_result.json
+      - name: Validar bloqueios e evidencias
+        run: |
+          python - <<'PYCODE'
+          import json
+          with open('eur_rc61_result.json', encoding='utf-8') as f:
+              d = json.load(f)
+          assert d['model_version'].startswith('eur-rc6.1')
+          assert d['source_audit']['preferred_us_series_for_diagnostic'] == 'CPIAUCNS'
+          assert d['source_audit']['preferred_series_approved_for_scoring'] is False
+          assert d['temporal_integrity']['point_in_time_backtest_authorized'] is False
+          assert d['temporal_integrity']['historical_vintage_per_observation_verified'] is False
+          assert d['relative_score'] is None and d['eligible_count'] == 0
+          assert d['signals_generated'] is False and d['database_writes'] is False
+          assert d['production_change_authorized'] is False
+          print('RC6.1: evidencias registradas e bloqueios preservados')
+          PYCODE
+      - name: Anexar diagnostico
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eur-rc61-diagnostico
+          path: eur_rc61_result.json
+          if-no-files-found: warn
