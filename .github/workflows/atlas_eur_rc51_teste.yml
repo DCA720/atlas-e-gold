@@ -1,0 +1,44 @@
+name: Atlas EUR RC5.1 - Alinhamento temporal
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnostico-rc51:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verificar sintaxe
+        run: python -m py_compile backend/atlas_eur_rc51.py backend/atlas_eur_rc5.py backend/eur_score_rc4.py
+      - name: Executar diagnostico
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        run: python backend/atlas_eur_rc51.py > eur_rc51_result.json
+      - name: Validar seguranca e contrato
+        run: |
+          python - <<'PYCODE'
+          import json
+          with open('eur_rc51_result.json', encoding='utf-8') as f:
+              d = json.load(f)
+          assert d['signals_generated'] is False
+          assert d['database_writes'] is False
+          assert d['relative_score'] is None
+          assert d['horizons']['1d']['score'] is None
+          assert d['horizons']['5d']['score'] is None
+          assert d['eligible_count'] == 0
+          print('RC5.1 validado: somente diagnostico, sem sinais')
+          PYCODE
+      - name: Anexar resultado
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eur-rc51-diagnostico
+          path: eur_rc51_result.json
+          if-no-files-found: warn
