@@ -1,0 +1,66 @@
+name: Atlas EUR RC6.3 - Evidencias oficiais de divulgacao
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  auditoria-rc63:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verificar sintaxe
+        run: python -m py_compile backend/atlas_eur_rc57.py backend/atlas_eur_rc58.py backend/atlas_eur_rc60.py backend/atlas_eur_rc61.py backend/atlas_eur_rc62.py backend/atlas_eur_rc63.py
+      - name: Testar horarios e bloqueios sem rede
+        run: |
+          PYTHONPATH=backend python - <<'PY'
+          from datetime import datetime, timezone
+          from atlas_eur_rc63 import build_evidence, evaluate
+          rows, manifest = build_evidence()
+          assert len(rows) == 4 and len(manifest['records']) == 2
+          times = {r['reference_period']:r['released_at_utc'] for r in manifest['records']}
+          assert times['2026-09'] == '2026-10-14T12:30:00Z'
+          assert times['2026-10'] == '2026-11-10T13:30:00Z'
+          assert all(r['released_at_utc'] is None for r in rows if r['source']=='EU_HICP_EA21')
+          def mock_rc62():
+              return {'upstream_rc61': {'technical_diagnostic_ready':True,'latest_aligned_period':'2026-09'}}
+          result = evaluate(rc62_fetcher=mock_rc62, asof=datetime(2026,11,17,21,tzinfo=timezone.utc))
+          assert result['manifest_audit']['accepted_records'] == 2
+          assert not result['point_in_time_backtest_authorized']
+          assert not result['signals_generated'] and not result['database_writes']
+          assert result['eligible_count'] == 0 and result['relative_score'] is None
+          print('Testes sinteticos RC6.3 aprovados')
+          PY
+      - name: Executar diagnostico real
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        run: python backend/atlas_eur_rc63.py > eur_rc63_result.json
+      - name: Verificar invariantes
+        run: |
+          python - <<'PY'
+          import json
+          with open('eur_rc63_result.json', encoding='utf-8') as f: d=json.load(f)
+          assert d['model_version'].startswith('eur-rc6.3')
+          assert d['manifest_audit']['accepted_records']==2
+          assert d['eu_release_times_documented'] is False
+          assert d['all_release_timestamps_verified'] is False
+          assert d['historical_vintage_per_observation_verified'] is False
+          assert d['point_in_time_backtest_authorized'] is False
+          assert d['eligible_count']==0 and d['relative_score'] is None
+          assert d['signals_generated'] is False and d['database_writes'] is False
+          assert d['production_change_authorized'] is False
+          print('Invariantes RC6.3 preservadas')
+          PY
+      - name: Anexar diagnostico
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eur-rc63-diagnostico
+          path: eur_rc63_result.json
+          if-no-files-found: warn
