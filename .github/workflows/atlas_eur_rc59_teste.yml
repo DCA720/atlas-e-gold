@@ -1,0 +1,43 @@
+name: Atlas EUR RC5.9 - Auditoria inflacao Europa EUA
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  auditoria-rc59:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verificar sintaxe
+        run: python -m py_compile backend/atlas_eur_rc57.py backend/atlas_eur_rc58.py backend/atlas_eur_rc59.py
+      - name: Executar auditoria
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        run: python backend/atlas_eur_rc59.py > eur_rc59_result.json
+      - name: Validar bloqueios e formato
+        run: |
+          python - <<'PYCODE'
+          import json
+          with open('eur_rc59_result.json', encoding='utf-8') as f:
+              d = json.load(f)
+          assert d['model_version'].startswith('eur-rc5.9')
+          assert d['relative_score'] is None and d['eligible_count'] == 0
+          assert d['signals_generated'] is False and d['database_writes'] is False
+          assert d['production_change_authorized'] is False
+          assert d['methodology']['basket_and_methodology_equivalence_verified'] is False
+          print('RC5.9: auditoria concluida; sinais bloqueados')
+          PYCODE
+      - name: Anexar diagnostico
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eur-rc59-diagnostico
+          path: eur_rc59_result.json
+          if-no-files-found: warn
