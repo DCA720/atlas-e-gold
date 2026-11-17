@@ -1,0 +1,49 @@
+name: Atlas EUR RC4 - Diagnostico comparativo
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  testar-eur-rc4:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Baixar repositorio
+        uses: actions/checkout@v4
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verificar sintaxe
+        run: |
+          python -m py_compile backend/eur_score_rc4.py backend/eur_score.py backend/eur_macro_sources.py backend/eur_rates.py
+      - name: Consultar fontes e emitir diagnostico RC4
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        run: python backend/eur_score_rc4.py > eur_rc4_result.json
+      - name: Verificar contrato sem sinais
+        run: |
+          python - <<'PY'
+          import json
+          with open('eur_rc4_result.json', encoding='utf-8') as f:
+              data = json.load(f)
+          assert data['asset'] == 'EUR'
+          assert data['relative_score'] is None
+          assert all(v['score'] is None for v in data['horizons'].values())
+          assert set(data['comparisons']) == {'inflation', 'unemployment', 'rates', 'activity'}
+          print('Contrato RC4 valido; sem sinais operacionais.')
+          print('Comparacoes:', {k: v.get('status') for k, v in data['comparisons'].items()})
+          print('Fontes EUA:', {k: v.get('status') for k, v in data['us_data'].items()})
+          print('Score estrutural RC3:', data['structural_score'])
+          PY
+      - name: Anexar diagnostico JSON
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: atlas-eur-rc4-diagnostico
+          path: eur_rc4_result.json
+          if-no-files-found: ignore
+          retention-days: 7
