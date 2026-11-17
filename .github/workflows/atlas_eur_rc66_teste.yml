@@ -1,0 +1,60 @@
+name: Atlas EUR RC6.6 - Comunicados historicos HICP
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  auditoria-rc66:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verificar sintaxe
+        run: python -m py_compile backend/atlas_eur_rc66.py
+      - name: Testes isolados sem rede
+        run: |
+          PYTHONPATH=backend python - <<'PY'
+          from atlas_eur_rc66 import evaluate
+          def mock(url):
+              if '02102026' in url: value='annual inflation up to 3.8%'
+              elif '16102026' in url: value='annual inflation rate was 3.8%'
+              else: value='annual inflation up to 4.0%'
+              return {'text':value, 'final_url':url}
+          d=evaluate(fetcher=mock)
+          assert d['official_pages_retrieved']==3
+          assert d['official_headlines_confirmed']==3
+          assert d['historical_calendar_discrepancies'][0]['dates_disagree']
+          assert d['flash_vs_full'][0]['headline_values_equal']
+          assert not d['eu_original_dataset_vintages_verified']
+          assert not d['point_in_time_backtest_authorized']
+          assert d['relative_score'] is None and d['eligible_count']==0
+          assert not d['signals_generated'] and not d['database_writes']
+          print('Testes RC6.6 aprovados')
+          PY
+      - name: Consultar comunicados oficiais Eurostat
+        run: python backend/atlas_eur_rc66.py > eur_rc66_result.json
+      - name: Verificar invariantes
+        run: |
+          python - <<'PY'
+          import json
+          with open('eur_rc66_result.json',encoding='utf-8') as f: d=json.load(f)
+          assert len(d['official_release_archive'])==3
+          assert not d['point_in_time_backtest_authorized']
+          assert d['eligible_count']==0 and d['relative_score'] is None
+          assert not d['signals_generated'] and not d['database_writes']
+          assert not d['production_change_authorized']
+          print('Invariantes RC6.6 preservadas')
+          PY
+      - name: Anexar diagnostico
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eur-rc66-diagnostico
+          path: eur_rc66_result.json
+          if-no-files-found: warn
