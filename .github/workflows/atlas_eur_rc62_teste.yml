@@ -1,0 +1,65 @@
+name: Atlas EUR RC6.2 - Integridade temporal
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  auditoria-rc62:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verificar sintaxe
+        run: python -m py_compile backend/atlas_eur_rc57.py backend/atlas_eur_rc58.py backend/atlas_eur_rc60.py backend/atlas_eur_rc61.py backend/atlas_eur_rc62.py
+      - name: Testar bloqueio de informacao futura sem acessar rede
+        run: |
+          PYTHONPATH=backend python - <<'PY'
+          from datetime import datetime, timezone
+          from atlas_eur_rc62 import audit_manifest, availability
+          now = datetime(2026, 9, 15, 12, tzinfo=timezone.utc)
+          sample = {'records': [
+              {'source':'EU_HICP_EA21','reference_period':'2026-08', 'released_at_utc':'2026-09-01T09:00:00Z', 'evidence_url':'https://example.org/eu'},
+              {'source':'US_CPIAUCNS','reference_period':'2026-08', 'released_at_utc':'2026-09-16T12:00:00Z', 'evidence_url':'https://example.org/us'}
+          ]}
+          audit, index = audit_manifest(sample, datetime(2026, 10, 1, tzinfo=timezone.utc))
+          assert audit['status'] == 'provided_unverified'
+          check = availability(index, '2026-08', now)
+          assert check['sources']['EU_HICP_EA21']['available'] is True
+          assert check['sources']['US_CPIAUCNS']['available'] is False
+          assert check['both_documented_releases_reached'] is False
+          assert check['point_in_time_values_verified'] is False
+          print('Teste temporal sintetico: aprovado; datas ficticias apenas para teste')
+          PY
+      - name: Executar diagnostico real sem manifesto de horarios
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        run: python backend/atlas_eur_rc62.py > eur_rc62_result.json
+      - name: Verificar invariantes de seguranca
+        run: |
+          python - <<'PY'
+          import json
+          with open('eur_rc62_result.json', encoding='utf-8') as f:
+              d = json.load(f)
+          assert d['model_version'].startswith('eur-rc6.2')
+          assert d['manifest_audit']['status'] == 'empty'
+          assert d['release_timestamp_per_observation_verified'] is False
+          assert d['historical_vintage_per_observation_verified'] is False
+          assert d['point_in_time_backtest_authorized'] is False
+          assert d['eligible_count'] == 0 and d['relative_score'] is None
+          assert d['signals_generated'] is False and d['database_writes'] is False
+          assert d['production_change_authorized'] is False
+          print('RC6.2: auditoria temporal executada, bloqueios preservados')
+          PY
+      - name: Anexar diagnostico
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eur-rc62-diagnostico
+          path: eur_rc62_result.json
+          if-no-files-found: warn
