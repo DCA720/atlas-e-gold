@@ -1,0 +1,32 @@
+name: Atlas EUR RC4.4 - Auditoria de valores brutos FRED
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  auditoria:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Baixar repositorio
+        uses: actions/checkout@v4
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verificar sintaxe
+        run: python -m py_compile backend/atlas_eur_rc44_auditoria.py
+      - name: Consultar valores brutos da FRED
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        run: python backend/atlas_eur_rc44_auditoria.py > eur_rc44_auditoria.json
+      - name: Anexar auditoria JSON
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eur-rc44-auditoria
+          path: eur_rc44_auditoria.json
+          if-no-files-found: warn
