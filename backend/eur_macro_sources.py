@@ -12,9 +12,9 @@ from datetime import datetime, timezone
 BASE = 'https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/data/'
 SERIES = {
     'hicp_yoy': {
-        'dataset': 'prc_hicp_manr',
-        'filters': {'geo': 'EA21', 'coicop': 'CP00'},
-        'description': 'Inflação harmonizada anual, índice geral, área do euro (EA21)',
+        'dataset': 'prc_hicp_minr',
+        'filters': {'geo': 'EA20', 'coicop18': 'TOTAL', 'freq': 'M', 'unit': 'RCH_A'},
+        'description': 'Inflação harmonizada anual HICP, índice geral ECOICOP 2018, área do euro (EA20)',
         'unit': '% ao ano',
     },
     'unemployment': {
@@ -55,8 +55,6 @@ def _extract_series(data):
     if any(size == 0 for size in sizes):
         raise ValueError('Série sem categorias: ' + ', '.join(dim for dim, size in zip(ids, sizes) if size == 0))
     for dim, size in zip(ids, sizes):
-        if dim != 'time' and size == 0:
-            raise ValueError(f'Série não encontrada: dimensão {dim} sem categorias; confira filtros e disponibilidade no Eurostat')
         if dim != 'time' and size != 1:
             raise ValueError(f'Filtro insuficiente: dimensão {dim} possui {size} categorias')
     time_dim = dimensions['time']['category']['index']
@@ -91,8 +89,13 @@ def collect_eurostat(name, timeout=25):
     url = BASE + spec['dataset'] + '?' + urllib.parse.urlencode(params)
     data = _get_json(url, timeout=timeout)
     rows = _extract_series(data)
+    if name == 'hicp_yoy':
+        expected = {'geo': 'EA20', 'coicop18': 'TOTAL', 'freq': 'M', 'unit': 'RCH_A'}
+        for dimension, category in expected.items():
+            index = data.get('dimension', {}).get(dimension, {}).get('category', {}).get('index', {})
+            if category not in index:
+                raise ValueError(f'HICP: dimensão {dimension} não confirmou a categoria {category}')
     # Recusa séries antigas, inclusive quando o código geográfico foi descontinuado.
-    from datetime import date
     today = datetime.now(timezone.utc).date()
     period = rows[0]['date']
     if name == 'activity':
