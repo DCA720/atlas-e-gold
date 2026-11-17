@@ -1,0 +1,44 @@
+name: Atlas EUR RC5.6 - Auditoria de fontes e janelas
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  auditoria-rc56:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verificar arquivos e sintaxe
+        run: |
+          python -m py_compile backend/atlas_eur_rc56.py backend/atlas_eur_rc552.py backend/atlas_eur_rc551.py backend/eur_macro_sources.py
+      - name: Executar auditoria
+        run: python backend/atlas_eur_rc56.py > eur_rc56_result.json
+      - name: Validar contrato conservador
+        run: |
+          python - <<'PYCODE'
+          import json
+          with open('eur_rc56_result.json', encoding='utf-8') as f:
+              d = json.load(f)
+          assert d['relative_score'] is None and d['eligible_count'] == 0
+          assert d['signals_generated'] is False and d['database_writes'] is False
+          assert d['source_code_modified'] is False
+          assert set(d['diagnostics']) == {'inflation','unemployment','activity'}
+          for factor in d['diagnostics'].values():
+              assert set(factor['geographies']) == {'EA20','EA21'}
+              assert factor['production_change_authorized'] is False
+          print('RC5.6: auditoria e bloqueios validados')
+          PYCODE
+      - name: Anexar resultado
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eur-rc56-diagnostico
+          path: eur_rc56_result.json
+          if-no-files-found: warn
