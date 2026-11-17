@@ -111,7 +111,7 @@ def main():
     us = {}
     for name, sid in FRED_SERIES.items():
         if not key:
-            us[name] = {'status': 'indisponível', 'reason': 'FRED_API_KEY não configurada'}
+            us['inflation' if name == 'cpi' else name] = {'status': 'indisponível', 'reason': 'FRED_API_KEY não configurada'}
             continue
         try:
             rows = fetch_fred(sid, key)
