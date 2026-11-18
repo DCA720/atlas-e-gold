@@ -1,0 +1,41 @@
+name: Atlas EUR RC7.1 - Auditoria temporal desemprego
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  unemployment-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verificar sintaxe
+        run: python -m py_compile backend/atlas_eur_rc71.py
+      - name: Testes locais simulados
+        run: python backend/atlas_eur_rc71.py --test
+      - name: Executar auditoria (somente leitura)
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        run: python backend/atlas_eur_rc71.py --output eur_rc71_result.json
+      - name: Validar bloqueios de seguranca
+        run: |
+          python - <<'PY'
+          import json
+          r=json.load(open('eur_rc71_result.json'))
+          assert r['relative_score'] is None
+          assert r['eligible_count']==0
+          assert not r['signals_generated']
+          assert not r['database_writes']
+          assert not r['point_in_time_backtest_authorized']
+          assert not r['production_change_authorized']
+          assert not r['source_code_modified']
+          print('Safety gates passed')
+          PY
+      - name: Publicar diagnostico
+        uses: actions/upload-artifact@v4
+        with:
+          name: eur-rc71-diagnostico
+          path: eur_rc71_result.json
