@@ -1,0 +1,41 @@
+name: Atlas EUR RC7.2 - Diagnostico atividade industrial
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  diagnostico:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verificar sintaxe
+        run: python -m py_compile backend/atlas_eur_rc72.py
+      - name: Testes locais
+        run: python backend/atlas_eur_rc72.py --self-test
+      - name: Consultar Eurostat e FRED
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        run: python backend/atlas_eur_rc72.py --output eur_rc72_result.json
+      - name: Verificar bloqueios de seguranca
+        run: |
+          python - <<'PY'
+          import json
+          r=json.load(open('eur_rc72_result.json',encoding='utf-8'))
+          assert r['eligible_count']==0
+          assert r['relative_score'] is None
+          assert not r['signals_generated']
+          assert not r['database_writes']
+          assert not r['point_in_time_backtest_authorized']
+          assert r['sources']['eu']['status']=='ok'
+          assert r['sources']['us']['status']=='ok'
+          print('SAFETY_GATES_OK')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: eur-rc72-diagnostico
+          path: eur_rc72_result.json
+          if-no-files-found: error
