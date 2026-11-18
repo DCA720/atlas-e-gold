@@ -1,0 +1,61 @@
+name: Atlas EUR RC7.4 - Auditoria temporal integrada
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  diagnostico:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validar sintaxe e controles simulados
+        run: |
+          python -m py_compile backend/atlas_eur_rc73.py backend/atlas_eur_rc74.py
+          python backend/atlas_eur_rc73.py --self-test
+          python backend/atlas_eur_rc74.py --self-test
+      - name: Atualizar quatro diagnosticos (somente leitura)
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        run: |
+          set -euo pipefail
+          python backend/atlas_eur_rc67.py > eur_rc67_result.json
+          EUR_RC69_OUTPUT=eur_rc69_result.json python backend/atlas_eur_rc69.py
+          python backend/atlas_eur_rc71.py --output eur_rc71_result.json
+          python backend/atlas_eur_rc72.py --output eur_rc72_result.json
+      - name: Integrar diagnosticos
+        run: |
+          python backend/atlas_eur_rc73.py --input-dir . --output eur_rc73_result.json
+      - name: Auditar disponibilidade temporal
+        run: |
+          python backend/atlas_eur_rc74.py --input eur_rc73_result.json --output eur_rc74_result.json
+          python - <<'PY'
+          import json
+          r=json.load(open('eur_rc74_result.json',encoding='utf-8'))
+          assert r['input_valid']
+          assert r['verified_point_in_time_events']==0
+          assert all(e['available_asof_utc'] is None for e in r['publication_events'])
+          assert r['eligible_count']==0 and r['coverage']==0
+          assert r['relative_score'] is None
+          assert all(v is False for v in r['eligibility'].values())
+          assert all(r['horizons'][h]['score'] is None for h in ('1d','5d'))
+          assert not any(r[k] for k in ('signals_generated','database_writes',
+                                       'production_change_authorized','point_in_time_backtest_authorized'))
+          print('TEMPORAL_SAFETY_GATES_OK')
+          PY
+      - name: Publicar diagnosticos
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eur-rc74-diagnostico
+          path: |
+            eur_rc67_result.json
+            eur_rc69_result.json
+            eur_rc71_result.json
+            eur_rc72_result.json
+            eur_rc73_result.json
+            eur_rc74_result.json
+          if-no-files-found: warn
