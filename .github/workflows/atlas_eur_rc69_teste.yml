@@ -1,0 +1,52 @@
+name: Atlas EUR RC6.9 - Historico decisoes BCE x Fed
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verificar sintaxe
+        run: python -m py_compile backend/atlas_eur_rc69.py
+      - name: Testes de mudancas com dados simulados
+        run: |
+          python - <<'PY'
+          import sys
+          sys.path.insert(0, 'backend')
+          from atlas_eur_rc69 import changes, paired_fed_changes
+          x = changes({'2026-01-01': 2.5, '2026-01-02': 2.5, '2026-01-03': 2.25})
+          assert len(x) == 1 and x[0]['delta_pp'] == -0.25
+          y = paired_fed_changes({'2026-01-01': 3.75, '2026-01-02': 3.5},
+                                 {'2026-01-01': 4.0, '2026-01-02': 3.75})
+          assert len(y) == 1 and y[0]['midpoint_change_pp'] == -0.25
+          assert not y[0]['announcement_timestamp_verified']
+          print('Testes simulados OK')
+          PY
+      - name: Executar diagnostico somente leitura
+        id: diagnostic
+        continue-on-error: true
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          EUR_RC69_OUTPUT: eur_rc69_result.json
+        run: python backend/atlas_eur_rc69.py
+      - name: Publicar resultado
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eur-rc69-diagnostico
+          path: eur_rc69_result.json
+          if-no-files-found: warn
+      - name: Falhar se diagnostico nao passar
+        if: steps.diagnostic.outcome == 'failure'
+        run: exit 1
