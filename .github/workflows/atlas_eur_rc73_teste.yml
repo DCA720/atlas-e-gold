@@ -1,0 +1,54 @@
+name: Atlas EUR RC7.3 - Integracao dos quatro fatores
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  diagnostico:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verificar sintaxe e integracao simulada
+        run: |
+          python -m py_compile backend/atlas_eur_rc73.py
+          python backend/atlas_eur_rc73.py --self-test
+      - name: Gerar diagnosticos de entrada (somente leitura)
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        run: |
+          set -euo pipefail
+          python backend/atlas_eur_rc67.py > eur_rc67_result.json
+          EUR_RC69_OUTPUT=eur_rc69_result.json python backend/atlas_eur_rc69.py
+          python backend/atlas_eur_rc71.py --output eur_rc71_result.json
+          python backend/atlas_eur_rc72.py --output eur_rc72_result.json
+      - name: Integrar e validar bloqueios
+        run: |
+          python backend/atlas_eur_rc73.py --input-dir . --output eur_rc73_result.json
+          python - <<'PY'
+          import json
+          r=json.load(open('eur_rc73_result.json',encoding='utf-8'))
+          assert r['integration']['all_inputs_valid']
+          assert r['eligible_count']==0 and r['coverage']==0
+          assert r['relative_score'] is None
+          assert all(v is False for v in r['eligibility'].values())
+          assert all(r['horizons'][h]['score'] is None for h in ('1d','5d'))
+          assert not any(r[k] for k in ('signals_generated','database_writes',
+                                       'production_change_authorized','point_in_time_backtest_authorized'))
+          print('INTEGRATION_SAFETY_GATES_OK')
+          PY
+      - name: Publicar diagnosticos
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eur-rc73-diagnostico
+          path: |
+            eur_rc67_result.json
+            eur_rc69_result.json
+            eur_rc71_result.json
+            eur_rc72_result.json
+            eur_rc73_result.json
+          if-no-files-found: warn
