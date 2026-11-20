@@ -1,0 +1,37 @@
+name: Atlas EUR RC9.0 - Vies macro experimental fixo
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  vies-experimental:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Testar modulo
+        run: |
+          python -m py_compile backend/atlas_eur_rc90.py
+          python backend/atlas_eur_rc90.py --self-test
+      - name: Avaliar snapshot explicito (sem dados inventados)
+        run: |
+          python backend/atlas_eur_rc90.py --input backend/eur_rc90_macro_snapshot.json --output eur_rc90_result.json
+          python - <<'PY'
+          import json
+          r=json.load(open('eur_rc90_result.json'))
+          assert r['research_only'] and not r['signals_generated'] and not r['database_writes']
+          assert not r['production_change_authorized'] and not r['backtests_authorized']
+          for v in r['horizons'].values():
+              if v['status']=='insufficient_data':
+                  assert v['experimental_score'] is None and v['experimental_bias']=='indisponivel'
+          print('RC90_SAFETY_OK')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eur-rc90-diagnostico
+          path: eur_rc90_result.json
+          if-no-files-found: warn
