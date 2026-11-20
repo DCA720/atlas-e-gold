@@ -1,0 +1,101 @@
+name: Atlas EUR RC8.1 - Integridade documental e primeira divulgacao
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  diagnostico:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verificar sintaxe e testes locais
+        run: |
+          python -m py_compile backend/atlas_eur_rc78.py backend/atlas_eur_rc79.py backend/atlas_eur_rc80.py backend/atlas_eur_rc81.py
+          python backend/atlas_eur_rc78.py --self-test
+          python backend/atlas_eur_rc79.py --self-test
+          python backend/atlas_eur_rc80.py --self-test
+          python backend/atlas_eur_rc81.py --self-test
+      - name: Executar cadeia de auditorias somente leitura
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        run: |
+          set -euo pipefail
+          python backend/atlas_eur_rc67.py > eur_rc67_result.json
+          EUR_RC69_OUTPUT=eur_rc69_result.json python backend/atlas_eur_rc69.py
+          python backend/atlas_eur_rc71.py --output eur_rc71_result.json
+          python backend/atlas_eur_rc72.py --output eur_rc72_result.json
+          python backend/atlas_eur_rc73.py --input-dir . --output eur_rc73_result.json
+          python backend/atlas_eur_rc74.py --input eur_rc73_result.json --output eur_rc74_result.json
+          python backend/atlas_eur_rc75.py --input eur_rc74_result.json --output eur_rc75_result.json
+          python backend/atlas_eur_rc76.py --input eur_rc75_result.json --output eur_rc76_result.json
+      - name: Gerar triagem contextual RC7.7
+        run: python backend/atlas_eur_rc77.py --input eur_rc76_result.json --output eur_rc77_result.json
+      - name: Vincular documentos RC7.8
+        run: python backend/atlas_eur_rc78.py --input eur_rc77_result.json --output eur_rc78_result.json
+      - name: Recuperar comunicados individuais e validar bloqueios
+        run: |
+          set -euo pipefail
+          python backend/atlas_eur_rc79.py --input eur_rc78_result.json --output eur_rc79_result.json
+          python - <<'PYTEST'
+          import json
+          r=json.load(open('eur_rc79_result.json',encoding='utf-8'))
+          assert r['input_valid'] and r['documents_attempted']==7
+          assert r['documents_retrieved'] <= 7
+          assert r['eligible_count']==0 and r['coverage']==0.0 and r['relative_score'] is None
+          assert r['verified_point_in_time_events']==0
+          assert all(not v for v in r['eligibility'].values())
+          assert all(r['horizons'][h]['score'] is None for h in ('1d','5d'))
+          assert all(not d['point_in_time_usable'] and not d['first_release_dataset_vintage_verified'] for d in r['documents'])
+          assert not any(r[k] for k in ('signals_generated','database_writes','production_change_authorized','point_in_time_backtest_authorized'))
+          print('RC79_SAFETY_GATES_OK')
+          PYTEST
+      - name: Auditar snapshots historicos RC8.0
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        run: |
+          set -euo pipefail
+          python backend/atlas_eur_rc80.py --input eur_rc79_result.json --output eur_rc80_result.json
+          python - <<'PYTEST'
+          import json
+          r=json.load(open('eur_rc80_result.json', encoding='utf-8'))
+          assert r['input_valid'] and r['documents_checked']==7
+          assert r['historical_queries_attempted']==5
+          assert r['eligible_count']==0 and r['coverage']==0.0 and r['relative_score'] is None
+          assert r['verified_point_in_time_events']==0
+          assert all(not v for v in r['eligibility'].values())
+          assert all(r['horizons'][h]['score'] is None for h in ('1d','5d'))
+          assert all(not s['point_in_time_usable'] for s in r['historical_snapshots'])
+          assert not any(r[k] for k in ('signals_generated','database_writes','production_change_authorized','point_in_time_backtest_authorized'))
+          print('RC80_SAFETY_GATES_OK')
+          PYTEST
+      - name: Auditar integridade documental RC8.1
+        run: |
+          set -euo pipefail
+          python backend/atlas_eur_rc81.py --rc79 eur_rc79_result.json --rc80 eur_rc80_result.json --output eur_rc81_result.json
+          python - <<'PYTEST'
+          import json
+          r=json.load(open('eur_rc81_result.json', encoding='utf-8'))
+          assert r['input_valid'] and r['documents_compared']==7 and r['snapshots_reviewed']==5
+          assert r['hash_matches']+r['hash_mismatches']==7
+          assert r['eligible_count']==0 and r['coverage']==0.0 and r['relative_score'] is None
+          assert r['verified_point_in_time_events']==0
+          assert all(not v for v in r['eligibility'].values())
+          assert all(r['horizons'][h]['score'] is None for h in ('1d','5d'))
+          assert all(not d['point_in_time_usable'] for d in r['document_integrity'])
+          assert not any(r[k] for k in ('signals_generated','database_writes','production_change_authorized','point_in_time_backtest_authorized'))
+          print('RC81_SAFETY_GATES_OK')
+          PYTEST
+      - name: Publicar diagnostico
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eur-rc81-diagnostico
+          path: |
+            eur_rc79_result.json
+            eur_rc80_result.json
+            eur_rc81_result.json
+          if-no-files-found: warn
