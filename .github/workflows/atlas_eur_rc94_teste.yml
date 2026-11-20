@@ -1,0 +1,40 @@
+name: Atlas EUR RC9.4 - Correcao HICP e alinhamento macro
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  pesquisa-macro:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compilacao e autoteste
+        run: |
+          python -m py_compile backend/atlas_eur_rc94.py
+          python backend/atlas_eur_rc94.py --self-test
+      - name: Coleta e alinhamento dos pares
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        run: python backend/atlas_eur_rc94.py --output eur_rc94_result.json
+      - name: Verificar bloqueios de seguranca
+        run: |
+          python - <<'PY'
+          import json
+          r=json.load(open('eur_rc94_result.json'))
+          assert r['research_only'] and not r['signals_generated']
+          assert not r['database_writes'] and not r['production_change_authorized']
+          assert not r['fixed_predictions_written'] and not r['backtests_authorized']
+          assert all(v=='indisponivel' for v in r['experimental_bias'].values())
+          print('RC94_SAFETY_OK')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eur-rc94-diagnostico
+          path: eur_rc94_result.json
+          if-no-files-found: warn
+          retention-days: 90
