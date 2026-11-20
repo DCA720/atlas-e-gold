@@ -1,0 +1,44 @@
+name: Atlas EUR RC9.1 - Coleta macro prospectiva
+on:
+  workflow_dispatch:
+  schedule:
+    # 04:00 Brasilia (UTC-03); GitHub scheduling may be delayed.
+    - cron: '0 7 * * 1-5'
+permissions:
+  contents: read
+jobs:
+  coleta-macro:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verificar modulo
+        run: |
+          python -m py_compile backend/atlas_eur_rc91.py
+          python backend/atlas_eur_rc91.py --self-test
+      - name: Coletar series reais (sem gerar vies)
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        run: python backend/atlas_eur_rc91.py --output eur_rc91_result.json
+      - name: Auditar bloqueios de seguranca
+        if: success()
+        run: |
+          python - <<'PY'
+          import json
+          r=json.load(open('eur_rc91_result.json'))
+          assert r['research_only'] and not r['signals_generated']
+          assert not r['database_writes'] and not r['production_change_authorized']
+          assert not r['backtests_authorized'] and not r['immutable_prediction_written']
+          assert all(v=='indisponivel' for v in r['experimental_bias'].values())
+          print('RC91_SAFETY_OK')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eur-rc91-diagnostico
+          path: eur_rc91_result.json
+          if-no-files-found: warn
+          retention-days: 90
