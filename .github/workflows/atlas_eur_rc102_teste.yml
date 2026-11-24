@@ -1,0 +1,51 @@
+name: Atlas EUR RC10.2 - Persistencia e precos
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 7 * * 1-5'
+    - cron: '20 7 * * 1-5'
+    - cron: '20 19 * * 1-5'
+permissions:
+  contents: write
+concurrency:
+  group: atlas-eur-rc102-ledger
+  cancel-in-progress: false
+jobs:
+  pesquisa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python backend/atlas_eur_rc102.py --self-test
+      - name: Coletar
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          EVENT: ${{ github.event_name }}
+          CRON: ${{ github.event.schedule }}
+        run: |
+          mode=diagnostic
+          if [ "$EVENT" = schedule ]; then
+            mode=audit
+            if [ "$CRON" = '0 7 * * 1-5' ]; then mode=record; fi
+          fi
+          python backend/atlas_eur_rc102.py --mode "$mode"
+      - name: Persistir somente novos registros EUR
+        if: github.event_name == 'schedule'
+        run: |
+          mkdir -p research/atlas-eur-ledger
+          git add -- research/atlas-eur-ledger/
+          if git diff --cached --quiet; then exit 0; fi
+          test -z "$(git diff --cached --name-only --diff-filter=MDCRTUXB)"
+          git config user.name 'atlas-eur-research'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Atlas EUR: append research ledger [skip ci]'
+          git push
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eur-rc102-diagnostico
+          path: eur_rc102_result.json
+          retention-days: 90
