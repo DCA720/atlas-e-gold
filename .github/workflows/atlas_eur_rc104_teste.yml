@@ -1,0 +1,26 @@
+name: Atlas EUR RC10.4 - Painel independente
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 20 * * 1-5'
+permissions:
+  contents: read
+jobs:
+  painel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python backend/atlas_eur_rc102.py --mode diagnostic
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+      - run: python backend/atlas_eur_rc103.py
+      - run: python backend/atlas_eur_rc104.py --diagnostic eur_rc102_result.json --statistics eur_rc103_result.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: eur-rc104-painel
+          path: atlas_eur_dashboard.html
+          retention-days: 90
