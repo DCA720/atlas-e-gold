@@ -1,0 +1,38 @@
+name: Atlas EUR RC10.1 - Registro prospectivo
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 7 * * 1-5'
+permissions:
+  contents: read
+concurrency:
+  group: atlas-eur-rc101
+  cancel-in-progress: false
+jobs:
+  pesquisa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python backend/atlas_eur_rc101.py --self-test
+      - name: Coletar e registrar candidato
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = schedule ]; then
+            python backend/atlas_eur_rc101.py --record
+          else
+            python backend/atlas_eur_rc101.py
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eur-rc101-diagnostico
+          path: |
+            eur_rc101_result.json
+            research/atlas-eur-ledger/
+          retention-days: 90
+          if-no-files-found: warn
