@@ -1,0 +1,40 @@
+name: Atlas EUR RC10.0 - Risco global
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  pesquisa-macro:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compilar e autotestar
+        run: |
+          python -m py_compile backend/atlas_eur_rc95.py backend/atlas_eur_rc98.py backend/atlas_eur_rc99.py backend/atlas_eur_rc100.py
+          python backend/atlas_eur_rc100.py --self-test
+      - name: Coletar indicadores atuais
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        run: python backend/atlas_eur_rc100.py --output eur_rc100_result.json
+      - name: Garantir isolamento
+        run: |
+          python - <<'PY'
+          import json
+          r=json.load(open('eur_rc100_result.json'))
+          assert r['research_only'] and not r['signals_generated']
+          assert not r['database_writes'] and not r['production_change_authorized']
+          assert not r['fixed_predictions_written'] and not r['backtests_authorized']
+          assert all(v=='indisponivel' for v in r['experimental_bias'].values())
+          print('RC100_SAFETY_OK')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eur-rc100-diagnostico
+          path: eur_rc100_result.json
+          if-no-files-found: warn
+          retention-days: 90
