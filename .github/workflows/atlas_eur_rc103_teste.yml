@@ -1,0 +1,22 @@
+name: Atlas EUR RC10.3 - Estatisticas
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '45 19 * * 1-5'
+permissions:
+  contents: read
+jobs:
+  estatisticas:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python backend/atlas_eur_rc103.py --self-test
+      - run: python backend/atlas_eur_rc103.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: eur-rc103-diagnostico
+          path: eur_rc103_result.json
+          retention-days: 90
